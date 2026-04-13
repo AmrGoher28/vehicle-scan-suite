@@ -12,9 +12,11 @@ const MODEL = "google/gemini-2.5-pro";
 const MAX_EXECUTION_TIME = 120000;
 const BATCH_SIZE = 2;
 
-const FIRST_PASS_SYSTEM = `You are an expert vehicle damage assessor for a luxury supercar rental company. Your job is to identify damage that a CUSTOMER could have caused during a rental period. ONLY flag damage that is clearly caused by an incident, collision, misuse, or negligence. DO flag: dents of any size, scratches that have broken through the clear coat or paint, deep gouges or scrapes, kerb rash or alloy wheel damage from hitting a curb, cracked or chipped windscreen/glass, bumper damage or scrapes from parking impacts, bodywork creases or panel damage from collisions, broken or damaged mirrors/trim/badges, tyre damage such as sidewall bulges or cuts, interior damage like ripped seats torn dashboard or cigarette burns. DO NOT flag: stone chips (normal road wear), light swirl marks in paint (normal wash marks), water spots or water etching, minor paint fade or oxidation from sun, light surface dust or dirt, factory paint orange peel, tiny pin-sized chips on the bonnet or front bumper, normal tyre wear, any cosmetic imperfection that would be considered normal wear and tear on a vehicle driven daily. For each piece of REAL damage found, return a JSON array of objects with fields: type, location_on_car, size_estimate, severity (minor/moderate/severe), confidence_score (0-100), description. Only include items you are at least 70% confident were caused by an incident rather than normal use. If no real damage is found, return an empty array. Return ONLY valid JSON.`;
+const FIRST_PASS_SYSTEM =
+  `You are an expert vehicle damage assessor for a luxury supercar rental company. Your job is to identify damage that a CUSTOMER could have caused during a rental period. ONLY flag damage that is clearly caused by an incident, collision, misuse, or negligence. DO flag: dents of any size, scratches that have broken through the clear coat or paint, deep gouges or scrapes, kerb rash or alloy wheel damage from hitting a curb, cracked or chipped windscreen/glass, bumper damage or scrapes from parking impacts, bodywork creases or panel damage from collisions, broken or damaged mirrors/trim/badges, tyre damage such as sidewall bulges or cuts, interior damage like ripped seats torn dashboard or cigarette burns. DO NOT flag: stone chips (normal road wear), light swirl marks in paint (normal wash marks), water spots or water etching, minor paint fade or oxidation from sun, light surface dust or dirt, factory paint orange peel, tiny pin-sized chips on the bonnet or front bumper, normal tyre wear, any cosmetic imperfection that would be considered normal wear and tear on a vehicle driven daily. For each piece of REAL damage found, return a JSON array of objects with fields: type, location_on_car, size_estimate, severity (minor/moderate/severe), confidence_score (0-100), description. Only include items you are at least 70% confident were caused by an incident rather than normal use. If no real damage is found, return an empty array. Return ONLY valid JSON.`;
 
-const SECOND_PASS_SYSTEM = `You are a senior vehicle damage assessor reviewing a junior inspector's findings on a luxury vehicle. Your job is to: 1) Verify each damage item — confirm or reject it. 2) Check for any damage the initial inspector MISSED. 3) Upgrade or downgrade severity ratings where appropriate. 4) Add repair cost estimates in AED for each confirmed item. Reject any items that look like normal wear and tear such as stone chips, swirl marks, water spots, or minor paint fade. Only confirm damage that a rental customer could realistically have caused through an incident or negligence. Be strict — false accusations damage customer trust and can lead to legal disputes. Return a final JSON array of all confirmed and newly found damage items with fields: type, location_on_car, size_estimate, severity, confidence_score, repair_cost_estimate_aed, description, status (confirmed/new/rejected). Return ONLY valid JSON.`;
+const SECOND_PASS_SYSTEM =
+  `You are a senior vehicle damage assessor reviewing a junior inspector's findings on a luxury vehicle. Your job is to: 1) Verify each damage item — confirm or reject it. 2) Check for any damage the initial inspector MISSED. 3) Upgrade or downgrade severity ratings where appropriate. 4) Add repair cost estimates in AED for each confirmed item. Reject any items that look like normal wear and tear such as stone chips, swirl marks, water spots, or minor paint fade. Only confirm damage that a rental customer could realistically have caused through an incident or negligence. Be strict — false accusations damage customer trust and can lead to legal disputes. Return a final JSON array of all confirmed and newly found damage items with fields: type, location_on_car, size_estimate, severity, confidence_score, repair_cost_estimate_aed, description, status (confirmed/new/rejected). Return ONLY valid JSON.`;
 
 async function analyzePhoto(photo: any, apiKey: string): Promise<any[]> {
   const response = await fetch(GATEWAY_URL, {
@@ -30,7 +32,11 @@ async function analyzePhoto(photo: any, apiKey: string): Promise<any[]> {
         {
           role: "user",
           content: [
-            { type: "text", text: `Analyse this photo from position ${photo.position_number} (${photo.position_name}) of the vehicle.` },
+            {
+              type: "text",
+              text:
+                `Analyse this photo from position ${photo.position_number} (${photo.position_name}) of the vehicle.`,
+            },
             { type: "image_url", image_url: { url: photo.photo_url } },
           ],
         },
@@ -39,27 +45,38 @@ async function analyzePhoto(photo: any, apiKey: string): Promise<any[]> {
   });
 
   if (response.status === 429) {
-    console.log(`Rate limited on position ${photo.position_number}, waiting 5s...`);
+    console.log(
+      `Rate limited on position ${photo.position_number}, waiting 5s...`,
+    );
     await new Promise((r) => setTimeout(r, 5000));
     return [];
   }
   if (!response.ok) {
     const text = await response.text();
-    console.error(`Model error for position ${photo.position_number}: ${response.status}`, text);
+    console.error(
+      `Model error for position ${photo.position_number}: ${response.status}`,
+      text,
+    );
     return [];
   }
 
   const result = await response.json();
   const content = result.choices?.[0]?.message?.content || "[]";
-  const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const cleaned = content.replace(/```json\n?/g, "").replace(/```\n?/g, "")
+    .trim();
 
   try {
     const items = JSON.parse(cleaned);
     if (Array.isArray(items)) {
-      return items.map((item: any) => ({ ...item, photo_position: photo.position_number }));
+      return items.map((item: any) => ({
+        ...item,
+        photo_position: photo.position_number,
+      }));
     }
   } catch {
-    console.error(`Failed to parse response for position ${photo.position_number}`);
+    console.error(
+      `Failed to parse response for position ${photo.position_number}`,
+    );
   }
   return [];
 }
@@ -71,10 +88,15 @@ async function processDamageAnalysis(inspectionId: string) {
   const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   let timedOut = false;
-  const timeout = setTimeout(() => { timedOut = true; }, MAX_EXECUTION_TIME);
+  const timeout = setTimeout(() => {
+    timedOut = true;
+  }, MAX_EXECUTION_TIME);
 
   try {
-    await supabaseAdmin.from("inspections").update({ status: "processing" }).eq("id", inspectionId);
+    await supabaseAdmin.from("inspections").update({ status: "processing" }).eq(
+      "id",
+      inspectionId,
+    );
 
     const { data: photos, error: photosErr } = await supabaseAdmin
       .from("inspection_photos")
@@ -83,7 +105,10 @@ async function processDamageAnalysis(inspectionId: string) {
       .order("position_number", { ascending: true });
 
     if (photosErr || !photos?.length) {
-      await supabaseAdmin.from("inspections").update({ status: "failed" }).eq("id", inspectionId);
+      await supabaseAdmin.from("inspections").update({ status: "failed" }).eq(
+        "id",
+        inspectionId,
+      );
       console.error("No photos found:", photosErr);
       return;
     }
@@ -99,13 +124,15 @@ async function processDamageAnalysis(inspectionId: string) {
       }
       const batch = photos.slice(i, i + BATCH_SIZE);
       const results = await Promise.allSettled(
-        batch.map((photo) => analyzePhoto(photo, LOVABLE_API_KEY))
+        batch.map((photo) => analyzePhoto(photo, LOVABLE_API_KEY)),
       );
       for (const r of results) {
         if (r.status === "fulfilled") allFirstPassDamage.push(...r.value);
         else console.error("Batch item failed:", r.reason);
       }
-      if (i + BATCH_SIZE < photos.length) await new Promise((r) => setTimeout(r, 1000));
+      if (i + BATCH_SIZE < photos.length) {
+        await new Promise((r) => setTimeout(r, 1000));
+      }
     }
 
     console.log(`First pass found ${allFirstPassDamage.length} damage items`);
@@ -117,7 +144,10 @@ async function processDamageAnalysis(inspectionId: string) {
       console.log("Starting second pass...");
       try {
         const imageBlocks = photos.map((p) => [
-          { type: "text", text: `Position ${p.position_number} (${p.position_name}):` },
+          {
+            type: "text",
+            text: `Position ${p.position_number} (${p.position_name}):`,
+          },
           { type: "image_url", image_url: { url: p.photo_url } },
         ]).flat();
 
@@ -135,7 +165,12 @@ async function processDamageAnalysis(inspectionId: string) {
                 role: "user",
                 content: [
                   ...imageBlocks,
-                  { type: "text", text: `\n\nInitial damage report:\n${JSON.stringify(allFirstPassDamage, null, 2)}\n\nPlease review and provide your final assessment.` },
+                  {
+                    type: "text",
+                    text: `\n\nInitial damage report:\n${
+                      JSON.stringify(allFirstPassDamage, null, 2)
+                    }\n\nPlease review and provide your final assessment.`,
+                  },
                 ],
               },
             ],
@@ -144,14 +179,18 @@ async function processDamageAnalysis(inspectionId: string) {
 
         if (secondPassResponse.ok) {
           const secondResult = await secondPassResponse.json();
-          const secondContent = secondResult.choices?.[0]?.message?.content || "[]";
-          const secondCleaned = secondContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+          const secondContent = secondResult.choices?.[0]?.message?.content ||
+            "[]";
+          const secondCleaned = secondContent.replace(/```json\n?/g, "")
+            .replace(/```\n?/g, "").trim();
           try {
             const reviewed = JSON.parse(secondCleaned);
             if (Array.isArray(reviewed)) {
               finalDamageItems = reviewed.map((item: any) => ({
                 ...item,
-                detected_by_model: item.status === "new" ? "claude-second" : "claude-dual",
+                detected_by_model: item.status === "new"
+                  ? "claude-second"
+                  : "claude-dual",
               }));
             }
           } catch {
@@ -175,7 +214,9 @@ async function processDamageAnalysis(inspectionId: string) {
       }));
     }
 
-    const confirmedItems = finalDamageItems.filter((item) => item.status !== "rejected");
+    const confirmedItems = finalDamageItems.filter((item) =>
+      item.status !== "rejected"
+    );
 
     if (confirmedItems.length > 0) {
       const rows = confirmedItems.map((item) => ({
@@ -192,16 +233,29 @@ async function processDamageAnalysis(inspectionId: string) {
         status: item.status || "confirmed",
       }));
 
-      const { error: insertErr } = await supabaseAdmin.from("damage_items").insert(rows);
+      const { error: insertErr } = await supabaseAdmin.from("damage_items")
+        .insert(rows);
       if (insertErr) console.error("Error saving damage items:", insertErr);
     }
 
-    const newStatus = timedOut ? "partial" : confirmedItems.length > 0 ? "needs_repair" : "passed";
-    await supabaseAdmin.from("inspections").update({ status: newStatus }).eq("id", inspectionId);
-    console.log(`Analysis complete: ${confirmedItems.length} items, status: ${newStatus}`);
+    const newStatus = timedOut
+      ? "partial"
+      : confirmedItems.length > 0
+      ? "needs_repair"
+      : "passed";
+    await supabaseAdmin.from("inspections").update({ status: newStatus }).eq(
+      "id",
+      inspectionId,
+    );
+    console.log(
+      `Analysis complete: ${confirmedItems.length} items, status: ${newStatus}`,
+    );
   } catch (e) {
     console.error("processDamageAnalysis error:", e);
-    await supabaseAdmin.from("inspections").update({ status: "failed" }).eq("id", inspectionId);
+    await supabaseAdmin.from("inspections").update({ status: "failed" }).eq(
+      "id",
+      inspectionId,
+    );
   } finally {
     clearTimeout(timeout);
   }
@@ -223,29 +277,34 @@ serve(async (req) => {
       body = await req.json();
     } catch {
       return new Response(JSON.stringify({ error: "Invalid request body" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const authHeader = req.headers.get("authorization");
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY");
+    const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") ||
+      Deno.env.get("SUPABASE_ANON_KEY");
     if (!anonKey) throw new Error("Missing anon/publishable key");
 
     const supabaseUser = createClient(supabaseUrl, anonKey, {
       global: { headers: { Authorization: authHeader! } },
     });
-    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
+    const { data: { user }, error: authError } = await supabaseUser.auth
+      .getUser();
     if (authError || !user) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const { inspection_id } = body;
     if (!inspection_id) {
       return new Response(JSON.stringify({ error: "inspection_id required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -272,10 +331,13 @@ serve(async (req) => {
     if (photoCountError) throw photoCountError;
 
     if (!photoCount) {
-      return new Response(JSON.stringify({ error: "Inspection has no photos" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      return new Response(
+        JSON.stringify({ error: "Inspection has no photos" }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
     }
 
     // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
@@ -283,13 +345,21 @@ serve(async (req) => {
 
     return new Response(
       JSON.stringify({ message: "Analysis started", inspection_id }),
-      { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      {
+        status: 202,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   } catch (e) {
     console.error("analyse-damage error:", e);
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
-      { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({
+        error: e instanceof Error ? e.message : "Unknown error",
+      }),
+      {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      },
     );
   }
 });
