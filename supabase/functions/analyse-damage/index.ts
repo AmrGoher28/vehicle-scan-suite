@@ -13,52 +13,27 @@ const FIRST_PASS_SYSTEM = `You are an expert vehicle damage assessor working for
 
 const SECOND_PASS_SYSTEM = `You are a senior vehicle damage assessor reviewing a junior inspector's findings on a luxury vehicle. Your job is to: 1) Verify each damage item — confirm or reject it. 2) Check for any damage the initial inspector MISSED. 3) Upgrade or downgrade severity ratings where appropriate. 4) Add repair cost estimates in AED for each confirmed item. Return a final JSON array of all confirmed and newly found damage items with fields: type, location_on_car, size_estimate, severity, confidence_score, repair_cost_estimate_aed, description, status (confirmed/new/rejected). Return ONLY valid JSON.`;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
+async function processDamageAnalysis(inspectionId: string) {
+  const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+    // Mark as processing
+    await supabaseAdmin.from("inspections").update({ status: "processing" }).eq("id", inspectionId);
 
-    const authHeader = req.headers.get("authorization");
-    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-    const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-    // Verify user
-    const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY");
-    if (!anonKey) throw new Error("Missing anon/publishable key");
-    const supabaseUser = createClient(supabaseUrl, anonKey, {
-      global: { headers: { Authorization: authHeader! } },
-    });
-    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const { inspection_id } = await req.json();
-    if (!inspection_id) {
-      return new Response(JSON.stringify({ error: "inspection_id required" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Get inspection photos
+    // Get photos
     const { data: photos, error: photosErr } = await supabaseAdmin
       .from("inspection_photos")
       .select("*")
-      .eq("inspection_id", inspection_id)
+      .eq("inspection_id", inspectionId)
       .order("position_number", { ascending: true });
 
     if (photosErr || !photos?.length) {
-      return new Response(JSON.stringify({ error: "No photos found for this inspection" }), {
-        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      await supabaseAdmin.from("inspections").update({ status: "failed" }).eq("id", inspectionId);
+      console.error("No photos found:", photosErr);
+      return;
     }
 
     // ===== FIRST PASS: Gemini =====
@@ -89,18 +64,13 @@ serve(async (req) => {
         });
 
         if (response.status === 429) {
-          console.log("Rate limited on first pass, waiting 5s...");
+          console.log("Rate limited, waiting 5s...");
           await new Promise((r) => setTimeout(r, 5000));
           continue;
         }
-        if (response.status === 402) {
-          return new Response(JSON.stringify({ error: "AI credits exhausted. Please add funds in Settings > Workspace > Usage." }), {
-            status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-          });
-        }
-
         if (!response.ok) {
           console.error(`Gemini error for position ${photo.position_number}:`, response.status);
+          await response.text();
           continue;
         }
 
@@ -121,69 +91,61 @@ serve(async (req) => {
       } catch (e) {
         console.error(`Error processing position ${photo.position_number}:`, e);
       }
-
-      // Small delay between requests
       await new Promise((r) => setTimeout(r, 1000));
     }
 
     console.log(`First pass found ${allFirstPassDamage.length} damage items`);
 
-    // ===== SECOND PASS: GPT-5 review =====
+    // ===== SECOND PASS: GPT-5 =====
     console.log("Starting second pass with GPT-5...");
-
     const photoDescriptions = photos.map((p) => `Position ${p.position_number} (${p.position_name}): ${p.photo_url}`).join("\n");
-
-    const secondPassResponse = await fetch(GATEWAY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-5",
-        messages: [
-          { role: "system", content: SECOND_PASS_SYSTEM },
-          {
-            role: "user",
-            content: `Here are 8 photos of the vehicle:\n${photoDescriptions}\n\nHere is the initial damage report from the first inspector:\n${JSON.stringify(allFirstPassDamage, null, 2)}\n\nPlease review and provide your final assessment.`,
-          },
-        ],
-      }),
-    });
 
     let finalDamageItems: any[] = [];
 
-    if (secondPassResponse.status === 429) {
-      console.log("Rate limited on second pass, using first pass results only");
-      finalDamageItems = allFirstPassDamage.map((item) => ({
-        ...item,
-        status: "confirmed",
-        repair_cost_estimate_aed: null,
-        detected_by_model: "gemini",
-      }));
-    } else if (secondPassResponse.ok) {
-      const secondResult = await secondPassResponse.json();
-      const secondContent = secondResult.choices?.[0]?.message?.content || "[]";
-      const secondCleaned = secondContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    try {
+      const secondPassResponse = await fetch(GATEWAY_URL, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5",
+          messages: [
+            { role: "system", content: SECOND_PASS_SYSTEM },
+            {
+              role: "user",
+              content: `Here are 8 photos of the vehicle:\n${photoDescriptions}\n\nHere is the initial damage report from the first inspector:\n${JSON.stringify(allFirstPassDamage, null, 2)}\n\nPlease review and provide your final assessment.`,
+            },
+          ],
+        }),
+      });
 
-      try {
-        const reviewed = JSON.parse(secondCleaned);
-        if (Array.isArray(reviewed)) {
-          finalDamageItems = reviewed.map((item: any) => ({
-            ...item,
-            detected_by_model: item.status === "new" ? "gpt-5" : "gemini+gpt-5",
-          }));
+      if (secondPassResponse.ok) {
+        const secondResult = await secondPassResponse.json();
+        const secondContent = secondResult.choices?.[0]?.message?.content || "[]";
+        const secondCleaned = secondContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+        try {
+          const reviewed = JSON.parse(secondCleaned);
+          if (Array.isArray(reviewed)) {
+            finalDamageItems = reviewed.map((item: any) => ({
+              ...item,
+              detected_by_model: item.status === "new" ? "gpt-5" : "gemini+gpt-5",
+            }));
+          }
+        } catch {
+          console.error("Failed to parse GPT-5 response");
         }
-      } catch {
-        console.error("Failed to parse GPT-5 response, using first pass results");
-        finalDamageItems = allFirstPassDamage.map((item) => ({
-          ...item,
-          status: "confirmed",
-          detected_by_model: "gemini",
-        }));
+      } else {
+        console.error("GPT-5 error:", secondPassResponse.status);
+        await secondPassResponse.text();
       }
-    } else {
-      console.error("GPT-5 error:", secondPassResponse.status);
+    } catch (e) {
+      console.error("Second pass error:", e);
+    }
+
+    // Fallback to first pass if second pass failed
+    if (finalDamageItems.length === 0 && allFirstPassDamage.length > 0) {
       finalDamageItems = allFirstPassDamage.map((item) => ({
         ...item,
         status: "confirmed",
@@ -191,13 +153,12 @@ serve(async (req) => {
       }));
     }
 
-    // Filter out rejected items for storage
     const confirmedItems = finalDamageItems.filter((item) => item.status !== "rejected");
 
     // Save to database
     if (confirmedItems.length > 0) {
       const rows = confirmedItems.map((item) => ({
-        inspection_id,
+        inspection_id: inspectionId,
         photo_position: item.photo_position || null,
         damage_type: item.type || "unknown",
         location_on_car: item.location_on_car || "unknown",
@@ -211,26 +172,57 @@ serve(async (req) => {
       }));
 
       const { error: insertErr } = await supabaseAdmin.from("damage_items").insert(rows);
-      if (insertErr) {
-        console.error("Error saving damage items:", insertErr);
-        throw insertErr;
-      }
+      if (insertErr) console.error("Error saving damage items:", insertErr);
     }
 
     // Update inspection status
-    await supabaseAdmin
-      .from("inspections")
-      .update({ status: confirmedItems.length > 0 ? "needs_repair" : "passed" })
-      .eq("id", inspection_id);
+    const newStatus = confirmedItems.length > 0 ? "needs_repair" : "passed";
+    await supabaseAdmin.from("inspections").update({ status: newStatus }).eq("id", inspectionId);
+    console.log(`Analysis complete: ${confirmedItems.length} confirmed items, status: ${newStatus}`);
+  } catch (e) {
+    console.error("processDamageAnalysis error:", e);
+    await supabaseAdmin.from("inspections").update({ status: "failed" }).eq("id", inspectionId);
+  }
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
+  try {
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY not configured");
+
+    const authHeader = req.headers.get("authorization");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const anonKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY") || Deno.env.get("SUPABASE_ANON_KEY");
+    if (!anonKey) throw new Error("Missing anon/publishable key");
+
+    const supabaseUser = createClient(supabaseUrl, anonKey, {
+      global: { headers: { Authorization: authHeader! } },
+    });
+    const { data: { user }, error: authError } = await supabaseUser.auth.getUser();
+    if (authError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { inspection_id } = await req.json();
+    if (!inspection_id) {
+      return new Response(JSON.stringify({ error: "inspection_id required" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Start background processing
+    // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
+    EdgeRuntime.waitUntil(processDamageAnalysis(inspection_id));
 
     return new Response(
-      JSON.stringify({
-        total_items: finalDamageItems.length,
-        confirmed: confirmedItems.length,
-        rejected: finalDamageItems.filter((i) => i.status === "rejected").length,
-        damage_items: finalDamageItems,
-      }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      JSON.stringify({ message: "Analysis started", inspection_id }),
+      { status: 202, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
     console.error("analyse-damage error:", e);
