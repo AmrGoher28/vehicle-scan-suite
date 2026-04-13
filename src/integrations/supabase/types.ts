@@ -14,7 +14,74 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      inspections: {
+        Row: {
+          created_at: string
+          id: string
+          inspection_date: string
+          notes: string | null
+          status: string
+          vehicle_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          inspection_date?: string
+          notes?: string | null
+          status?: string
+          vehicle_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          inspection_date?: string
+          notes?: string | null
+          status?: string
+          vehicle_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspections_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "vehicles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      vehicles: {
+        Row: {
+          colour: string
+          created_at: string
+          id: string
+          make: string
+          model: string
+          photo_url: string | null
+          plate_number: string
+          user_id: string
+        }
+        Insert: {
+          colour: string
+          created_at?: string
+          id?: string
+          make: string
+          model: string
+          photo_url?: string | null
+          plate_number: string
+          user_id: string
+        }
+        Update: {
+          colour?: string
+          created_at?: string
+          id?: string
+          make?: string
+          model?: string
+          photo_url?: string | null
+          plate_number?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
