@@ -1,38 +1,36 @@
 
 
-## Plan: Apply Bounding Box Code Updates
+## Plan: Add AR Overlays to Inspection Capture Flow
 
-The database migration is already complete. Now we apply the 3 frontend/edge-function file updates you provided.
+### What's Missing
+The current camera view during video walkaround and manual capture has minimal UI — just a coverage map and countdown text. It needs AR-style overlays on the live camera feed to guide the inspector.
 
-### Step 1: Replace `supabase/functions/analyse-damage/index.ts`
-Replace with your provided version featuring:
-- Updated prompts requesting `bounding_box: [ymin, xmin, ymax, xmax]` (0-1000 scale)
-- `parseBoundingBox()` returning individual column values
-- `legacyPointToBox()` for backwards compatibility
-- DB insert mapping bbox fields + computing legacy `damage_x/y_percent` from center
+### What We'll Add
 
-### Step 2: Replace `src/pages/InspectionReport.tsx`
-Replace with your provided version featuring:
-- `getBoundingBoxPercent()` with fallback chain (bbox → legacy point → text heuristic)
-- `DamageBoundingBox` component rendering severity-colored rectangles with hover tooltips
-- `DamageCard` with bbox-aware zoom panel
-- Precision count indicator in summary section
+**1. Framing Guide Brackets**
+Corner bracket overlays on the camera feed showing where to position the vehicle in frame. Animated brackets that pulse gently to draw attention. Different bracket positions per zone (e.g., front zone = center frame, side zones = landscape frame).
 
-### Step 3: Replace `src/components/DamageResults.tsx`
-Replace with your provided version featuring:
-- Updated `DamageItem` interface with bbox fields
-- Precise/Approximate badges per item (Crosshair vs MapPin icons)
-- Summary line showing precise location count
+**2. Distance Indicator**
+A real-time text indicator showing "Get closer", "Perfect distance", or "Step back" based on a simulated distance heuristic (since we can't measure actual distance, we'll use the video frame brightness/size analysis or simply guide based on zone timing).
 
-### Step 4: Replace `src/components/InspectionCaptureFlow.tsx`
-Replace with your provided video walkaround + manual capture flow featuring:
-- Mode selection screen (video vs manual)
-- 8-zone guided video recording with coverage map, distance indicator, and auto frame extraction
-- Manual 8-position photo fallback
-- Note: JSX was partially stripped in the paste — will reconstruct proper JSX structure from the component logic
+**3. Zone Label Overlay**
+Large semi-transparent zone label overlaid on the camera feed (e.g., "FRONT LEFT" with an arrow showing walk direction to the next zone).
 
-### Technical Notes
-- The `analyse-damage` edge function will auto-deploy
-- No additional database changes needed
-- All existing inspections without bbox data will gracefully fall back to legacy positioning
+**4. Walk Direction Arrow**
+An animated arrow showing which direction to walk next, rotating based on the current zone in the 360° walkaround sequence.
+
+**5. Scanning Line Animation**
+A horizontal scanning line that sweeps across the camera feed while recording, giving the visual impression of an active scan.
+
+**6. Manual Mode AR Guide**
+For manual photo mode: show a semi-transparent vehicle silhouette outline matching the current position (front view, side view, rear view, corner view) so the inspector knows how to frame the shot.
+
+### Technical Approach
+- All overlays are CSS/SVG elements absolutely positioned over the `<video>` element
+- Animations use CSS keyframes and Tailwind classes
+- No external AR libraries needed — this is purely visual guidance overlaid on the camera feed
+- Zone-specific framing guides use predefined SVG paths for each of the 8 positions
+
+### Files Changed
+- `src/components/InspectionCaptureFlow.tsx` — Add all AR overlay elements to both video and manual capture views
 
