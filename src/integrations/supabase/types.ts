@@ -16,6 +16,10 @@ export type Database = {
     Tables: {
       damage_items: {
         Row: {
+          bbox_xmax: number | null
+          bbox_xmin: number | null
+          bbox_ymax: number | null
+          bbox_ymin: number | null
           confidence_score: number | null
           created_at: string
           damage_type: string
@@ -33,6 +37,10 @@ export type Database = {
           status: string
         }
         Insert: {
+          bbox_xmax?: number | null
+          bbox_xmin?: number | null
+          bbox_ymax?: number | null
+          bbox_ymin?: number | null
           confidence_score?: number | null
           created_at?: string
           damage_type: string
@@ -50,6 +58,10 @@ export type Database = {
           status?: string
         }
         Update: {
+          bbox_xmax?: number | null
+          bbox_xmin?: number | null
+          bbox_ymax?: number | null
+          bbox_ymin?: number | null
           confidence_score?: number | null
           created_at?: string
           damage_type?: string
