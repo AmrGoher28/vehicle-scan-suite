@@ -8,7 +8,7 @@ const corsHeaders = {
 };
 
 const GATEWAY_URL = "https://ai.gateway.lovable.dev/v1/chat/completions";
-const MODEL = "anthropic/claude-sonnet-4-20250514";
+const MODEL = "google/gemini-2.5-pro";
 const MAX_EXECUTION_TIME = 120000;
 const BATCH_SIZE = 2;
 
