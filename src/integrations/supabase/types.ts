@@ -14,6 +14,62 @@ export type Database = {
   }
   public: {
     Tables: {
+      damage_items: {
+        Row: {
+          confidence_score: number | null
+          created_at: string
+          damage_type: string
+          description: string | null
+          detected_by_model: string | null
+          id: string
+          inspection_id: string
+          location_on_car: string
+          photo_position: number | null
+          repair_cost_estimate_aed: number | null
+          severity: string
+          size_estimate: string | null
+          status: string
+        }
+        Insert: {
+          confidence_score?: number | null
+          created_at?: string
+          damage_type: string
+          description?: string | null
+          detected_by_model?: string | null
+          id?: string
+          inspection_id: string
+          location_on_car: string
+          photo_position?: number | null
+          repair_cost_estimate_aed?: number | null
+          severity?: string
+          size_estimate?: string | null
+          status?: string
+        }
+        Update: {
+          confidence_score?: number | null
+          created_at?: string
+          damage_type?: string
+          description?: string | null
+          detected_by_model?: string | null
+          id?: string
+          inspection_id?: string
+          location_on_car?: string
+          photo_position?: number | null
+          repair_cost_estimate_aed?: number | null
+          severity?: string
+          size_estimate?: string | null
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "damage_items_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "inspections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inspection_photos: {
         Row: {
           created_at: string
