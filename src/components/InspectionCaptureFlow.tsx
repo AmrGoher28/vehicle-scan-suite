@@ -510,25 +510,28 @@ const InspectionCaptureFlow = ({
         )}
 
         {/* Camera preview */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 relative overflow-hidden bg-muted/20">
           <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
 
-          {/* AR Overlays — visible during recording */}
-          {recording && (
+          {mode === "video" && (
             <>
-              <FramingBrackets />
-              <ScanLine />
-              <DistanceIndicator elapsed={videoElapsed} zoneDuration={zone.duration} />
+              <FramingBrackets label={recording ? "AR TRACKING" : "ALIGN VEHICLE IN FRAME"} />
               <ZoneOverlay zone={zone} nextDirection={currentZone < 4 ? "right" : "left"} />
+              {recording ? (
+                <>
+                  <ScanLine />
+                  <DistanceIndicator elapsed={videoElapsed} zoneDuration={zone.duration} />
+                  <GuideHint message={`Keep the ${zone.label.toLowerCase()} of the car inside the guide and walk ${currentZone < 4 ? "clockwise" : "around to complete coverage"}.`} />
+                </>
+              ) : (
+                <GuideHint message="Stand facing the front of the vehicle and fit the whole car inside the bright guide before you start." />
+              )}
             </>
           )}
 
-          {/* Framing brackets before recording starts */}
-          {!recording && cameraReady && <FramingBrackets />}
-
           {/* Zone coverage map overlay */}
           {recording && (
-            <div className="absolute top-4 right-4 w-28 bg-background/70 backdrop-blur-sm rounded-xl p-2 border border-border">
+            <div className="absolute top-4 right-4 w-28 bg-background/85 backdrop-blur-sm rounded-xl p-2 border border-border shadow-lg">
               <div className="grid grid-cols-4 gap-1">
                 {ZONES.map((z, i) => (
                   <div
@@ -550,7 +553,7 @@ const InspectionCaptureFlow = ({
 
           {/* Countdown / zone timer */}
           {recording && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white rounded-full px-6 py-2 text-sm font-mono">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-border bg-background/85 px-6 py-2 text-sm font-mono text-foreground shadow-lg backdrop-blur-sm">
               {Math.ceil(TOTAL_DURATION - videoElapsed)}s remaining — Move to {zone.label}
             </div>
           )}
@@ -596,35 +599,32 @@ const InspectionCaptureFlow = ({
       </div>
 
       {/* Main area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 relative overflow-hidden bg-muted/20">
         {previewPhoto ? (
           <img src={previewPhoto} alt="Captured" className="h-full w-full object-cover" />
         ) : (
           <>
             <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-            {/* AR overlays for manual mode */}
-            {cameraReady && (
-              <>
-                <FramingBrackets />
-                <ManualFramingGuide position={currentPosition} />
-              </>
-            )}
+            <FramingBrackets label="AR PHOTO GUIDE" />
+            <ManualFramingGuide position={currentPosition} />
+            <GuideHint message="Match the car to the bright outline, then take the photo once the vehicle fills the guide." />
           </>
         )}
 
         {/* Diagram overlay */}
         {!previewPhoto && (
-          <div className="absolute top-4 right-4 w-28 h-28 bg-background/70 backdrop-blur-sm rounded-xl p-2 border border-border">
+          <div className="absolute top-4 right-4 w-28 h-28 bg-background/85 backdrop-blur-sm rounded-xl p-2 border border-border shadow-lg">
             <CarDiagram activePosition={currentPosition} />
           </div>
         )}
 
         {/* Position label overlay */}
-        {!previewPhoto && cameraReady && (
+        {!previewPhoto && (
           <div className="absolute top-4 left-4 pointer-events-none">
-            <div className="bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 border border-primary/30">
-              <p className="text-primary text-sm font-bold tracking-wider">{currentPosData.label.toUpperCase()}</p>
-              <p className="text-[10px] text-primary/70 mt-0.5">Align vehicle with the guide</p>
+            <div className="rounded-2xl border border-primary/30 bg-background/85 px-4 py-3 shadow-lg backdrop-blur-sm">
+              <p className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">Target angle</p>
+              <p className="mt-1 text-lg font-bold tracking-[0.18em] text-primary">{currentPosData.label.toUpperCase()}</p>
+              <p className="mt-1 text-xs text-foreground">Keep the whole car inside the guide.</p>
             </div>
           </div>
         )}
