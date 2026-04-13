@@ -110,23 +110,75 @@ const DamageMarker = ({ item, index }: { item: DamageItem; index: number }) => {
   );
 };
 
-const DamageCard = ({ item, index }: { item: DamageItem; index: number }) => {
+const DamageCard = ({ item, index, photo }: { item: DamageItem; index: number; photo?: Photo }) => {
   const col = severityColors(item.severity);
+  const pos = locationToPhotoXY(item.location_on_car);
+
   return (
-    <div className="flex items-stretch gap-4 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
-      <div className={`flex flex-col items-center justify-center rounded-lg px-3 py-2 ${col.bg}`}>
+    <div className="flex items-stretch gap-0 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
+      {/* Annotated photo */}
+      {photo && (
+        <div className="relative w-[200px] h-[150px] flex-shrink-0 bg-gray-100">
+          <img src={photo.photo_url} alt={photo.position_name} className="w-full h-full object-cover" />
+          {/* Red circle annotation */}
+          <div
+            className="absolute w-[60px] h-[60px] rounded-full border-[3px] border-red-500 pointer-events-none"
+            style={{
+              left: `${pos.x}%`,
+              top: `${pos.y}%`,
+              transform: "translate(-50%, -50%)",
+              boxShadow: "0 0 12px 2px rgba(239, 68, 68, 0.45)",
+            }}
+          />
+          {/* Arrow line + label */}
+          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 200 150" preserveAspectRatio="none">
+            {(() => {
+              const cx = pos.x * 2; // 0-200 scale
+              const cy = pos.y * 1.5; // 0-150 scale
+              // Label target: push to nearest edge
+              const lx = cx < 100 ? -5 : 205;
+              const ly = Math.max(15, Math.min(cy, 140));
+              return (
+                <>
+                  <line x1={cx} y1={cy} x2={lx} y2={ly} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,2" />
+                  <circle cx={lx} cy={ly} r="2" fill="#ef4444" />
+                </>
+              );
+            })()}
+          </svg>
+          {/* External label */}
+          <div
+            className="absolute text-[9px] font-bold text-red-600 bg-red-50 border border-red-300 rounded px-1 py-0.5 whitespace-nowrap pointer-events-none"
+            style={{
+              [pos.x < 50 ? "right" : "left"]: pos.x < 50 ? "calc(100% + 2px)" : "calc(100% + 2px)",
+              ...(pos.x < 50
+                ? { left: "-2px", top: `${pos.y}%`, transform: "translateY(-50%) translateX(-100%)" }
+                : { right: "-2px", top: `${pos.y}%`, transform: "translateY(-50%) translateX(100%)" }),
+            }}
+          >
+            {item.damage_type}
+          </div>
+        </div>
+      )}
+
+      {/* Severity badge */}
+      <div className={`flex flex-col items-center justify-center px-3 py-2 ${col.bg}`}>
         <span className={`text-lg font-bold ${col.text}`}>#{index + 1}</span>
         <span className={`text-[10px] font-semibold uppercase ${col.text} mt-0.5 px-2 py-0.5 rounded-full border ${col.border} ${col.bg}`}>
           {item.severity}
         </span>
       </div>
-      <div className="flex-1 min-w-0">
+
+      {/* Details */}
+      <div className="flex-1 min-w-0 p-4">
         <p className="font-semibold text-gray-900 capitalize text-base">{item.damage_type}</p>
         <p className="text-sm text-gray-500 mt-0.5">{item.location_on_car}{item.size_estimate ? ` · ${item.size_estimate}` : ""}</p>
         {item.description && <p className="text-sm text-gray-600 mt-1.5 line-clamp-2">{item.description}</p>}
         {item.confidence_score != null && <p className="text-xs text-gray-400 mt-1">Confidence: {item.confidence_score}%</p>}
       </div>
-      <div className="flex flex-col items-end justify-center text-right shrink-0">
+
+      {/* Cost */}
+      <div className="flex flex-col items-end justify-center text-right shrink-0 p-4">
         <p className="text-lg font-bold text-gray-900">
           {item.repair_cost_estimate_aed ? `${Number(item.repair_cost_estimate_aed).toLocaleString()}` : "—"}
         </p>
@@ -375,7 +427,7 @@ const InspectionReport = () => {
             <div className="space-y-3">
               <h3 className="text-lg font-semibold mb-2">All Damage Items</h3>
               {damageItems.map((d, i) => (
-                <DamageCard key={d.id} item={d} index={i} />
+                <DamageCard key={d.id} item={d} index={i} photo={photos.find(p => p.position_number === d.photo_position)} />
               ))}
             </div>
           ) : (
