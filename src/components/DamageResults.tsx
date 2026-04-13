@@ -1,7 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { AlertTriangle, CheckCircle, XCircle, ArrowLeft } from "lucide-react";
+import { AlertTriangle, CheckCircle, XCircle, ArrowLeft, Crosshair, MapPin } from "lucide-react";
 
 interface DamageItem {
   type: string;
@@ -14,6 +14,10 @@ interface DamageItem {
   status: string;
   detected_by_model?: string;
   photo_position?: number;
+  bbox_ymin?: number | null;
+  bbox_xmin?: number | null;
+  bbox_ymax?: number | null;
+  bbox_xmax?: number | null;
 }
 
 interface DamageResultsProps {
@@ -49,10 +53,8 @@ const DamageResults = ({ damageItems, onClose }: DamageResultsProps) => {
     minor: confirmed.filter((i) => i.severity === "minor"),
   };
 
-  const totalCost = confirmed.reduce(
-    (sum, item) => sum + (item.repair_cost_estimate_aed || 0),
-    0
-  );
+  const totalCost = confirmed.reduce((sum, item) => sum + (item.repair_cost_estimate_aed || 0), 0);
+  const preciseCount = confirmed.filter((i) => i.bbox_ymin != null).length;
 
   return (
     <div className="space-y-6">
@@ -84,6 +86,17 @@ const DamageResults = ({ damageItems, onClose }: DamageResultsProps) => {
         </Card>
       </div>
 
+      {/* Localization accuracy indicator */}
+      {confirmed.length > 0 && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Crosshair className="h-3 w-3" />
+          <span>
+            {preciseCount} of {confirmed.length} item(s) have precise bounding box locations
+            {preciseCount < confirmed.length && ` — ${confirmed.length - preciseCount} use approximate positioning`}
+          </span>
+        </p>
+      )}
+
       {/* Grouped damage items */}
       {(["severe", "moderate", "minor"] as const).map((severity) => {
         const items = grouped[severity];
@@ -114,6 +127,18 @@ const DamageResults = ({ damageItems, onClose }: DamageResultsProps) => {
                             <Badge variant="outline" className="bg-blue-500/20 text-blue-400 border-blue-500/30">
                               New Find
                             </Badge>
+                          )}
+                          {/* Location precision indicator */}
+                          {item.bbox_ymin != null ? (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-400">
+                              <Crosshair className="h-3 w-3" />
+                              Precise
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+                              <MapPin className="h-3 w-3" />
+                              Approx
+                            </span>
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground">
