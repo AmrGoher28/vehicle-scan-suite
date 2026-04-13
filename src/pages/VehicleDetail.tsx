@@ -125,26 +125,65 @@ const VehicleDetail = () => {
   const analyseInspection = async (inspectionId: string) => {
     setAnalysing(inspectionId);
     try {
-      const { data, error } = await supabase.functions.invoke("analyse-damage", {
+      const { error } = await supabase.functions.invoke("analyse-damage", {
         body: { inspection_id: inspectionId },
       });
-
       if (error) throw error;
 
-      toast({
-        title: "Analysis Complete",
-        description: `Found ${data.confirmed} damage item(s). ${data.rejected} rejected.`,
-      });
+      toast({ title: "Analysis Started", description: "Processing photos with AI. This may take 1-2 minutes..." });
 
-      setDamageResults({ inspectionId, items: data.damage_items });
-      fetchData();
+      // Poll for completion
+      const poll = async () => {
+        for (let i = 0; i < 60; i++) {
+          await new Promise((r) => setTimeout(r, 3000));
+          const { data: insp } = await supabase
+            .from("inspections")
+            .select("status")
+            .eq("id", inspectionId)
+            .single();
+          if (!insp) break;
+          if (insp.status === "processing" || insp.status === "pending") continue;
+
+          // Done
+          if (insp.status === "failed") {
+            toast({ title: "Analysis Failed", description: "The AI analysis encountered an error.", variant: "destructive" });
+          } else {
+            const { data: items } = await supabase
+              .from("damage_items")
+              .select("*")
+              .eq("inspection_id", inspectionId)
+              .order("severity", { ascending: true });
+            if (items && items.length > 0) {
+              toast({ title: "Analysis Complete", description: `Found ${items.length} damage item(s).` });
+              setDamageResults({
+                inspectionId,
+                items: items.map((d) => ({
+                  type: d.damage_type,
+                  location_on_car: d.location_on_car,
+                  size_estimate: d.size_estimate,
+                  severity: d.severity,
+                  confidence_score: d.confidence_score,
+                  repair_cost_estimate_aed: d.repair_cost_estimate_aed ? Number(d.repair_cost_estimate_aed) : undefined,
+                  description: d.description,
+                  status: d.status,
+                  detected_by_model: d.detected_by_model,
+                  photo_position: d.photo_position,
+                })),
+              });
+            } else {
+              toast({ title: "Analysis Complete", description: "No damage detected." });
+            }
+          }
+          fetchData();
+          setAnalysing(null);
+          return;
+        }
+        toast({ title: "Analysis Timeout", description: "Analysis is taking longer than expected. Check back later.", variant: "destructive" });
+        setAnalysing(null);
+      };
+      poll();
     } catch (err: any) {
-      toast({
-        title: "Analysis Failed",
-        description: err.message || "Could not complete the analysis.",
-        variant: "destructive",
-      });
-    } finally {
+      toast({ title: "Analysis Failed", description: err.message || "Could not start the analysis.", variant: "destructive" });
       setAnalysing(null);
     }
   };
