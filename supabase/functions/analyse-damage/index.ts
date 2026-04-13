@@ -249,6 +249,35 @@ serve(async (req) => {
       });
     }
 
+    const { data: inspection, error: inspectionError } = await supabaseUser
+      .from("inspections")
+      .select("id")
+      .eq("id", inspection_id)
+      .maybeSingle();
+
+    if (inspectionError) throw inspectionError;
+
+    if (!inspection) {
+      return new Response(JSON.stringify({ error: "Inspection not found" }), {
+        status: 404,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    const { count: photoCount, error: photoCountError } = await supabaseUser
+      .from("inspection_photos")
+      .select("id", { count: "exact", head: true })
+      .eq("inspection_id", inspection_id);
+
+    if (photoCountError) throw photoCountError;
+
+    if (!photoCount) {
+      return new Response(JSON.stringify({ error: "Inspection has no photos" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // @ts-ignore EdgeRuntime is available in Supabase Edge Functions
     EdgeRuntime.waitUntil(processDamageAnalysis(inspection_id));
 

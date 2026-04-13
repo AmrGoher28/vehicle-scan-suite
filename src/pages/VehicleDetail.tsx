@@ -124,7 +124,44 @@ const VehicleDetail = () => {
 
   const analyseInspection = async (inspectionId: string) => {
     setAnalysing(inspectionId);
+
     try {
+      const { data: inspection, error: inspectionError } = await supabase
+        .from("inspections")
+        .select("id")
+        .eq("id", inspectionId)
+        .maybeSingle();
+
+      if (inspectionError) throw inspectionError;
+
+      if (!inspection) {
+        toast({
+          title: "Inspection not found",
+          description: "This inspection no longer exists. The list has been refreshed.",
+          variant: "destructive",
+        });
+        await fetchData();
+        setAnalysing(null);
+        return;
+      }
+
+      const { count: photoCount, error: photoCountError } = await supabase
+        .from("inspection_photos")
+        .select("id", { count: "exact", head: true })
+        .eq("inspection_id", inspectionId);
+
+      if (photoCountError) throw photoCountError;
+
+      if (!photoCount) {
+        toast({
+          title: "No photos to analyse",
+          description: "Capture all inspection photos before starting AI analysis.",
+          variant: "destructive",
+        });
+        setAnalysing(null);
+        return;
+      }
+
       const { error } = await supabase.functions.invoke("analyse-damage", {
         body: { inspection_id: inspectionId },
       });
@@ -132,56 +169,95 @@ const VehicleDetail = () => {
 
       toast({ title: "Analysis Started", description: "Processing photos with AI. This may take 1-2 minutes..." });
 
-      // Poll for completion
       const poll = async () => {
-        for (let i = 0; i < 60; i++) {
-          await new Promise((r) => setTimeout(r, 3000));
-          const { data: insp } = await supabase
-            .from("inspections")
-            .select("status")
-            .eq("id", inspectionId)
-            .single();
-          if (!insp) break;
-          if (insp.status === "processing" || insp.status === "pending") continue;
+        try {
+          for (let i = 0; i < 60; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            const { data: insp, error: pollError } = await supabase
+              .from("inspections")
+              .select("status")
+              .eq("id", inspectionId)
+              .maybeSingle();
 
-          // Done
-          if (insp.status === "failed") {
-            toast({ title: "Analysis Failed", description: "The AI analysis encountered an error.", variant: "destructive" });
-          } else {
-            const { data: items } = await supabase
-              .from("damage_items")
-              .select("*")
-              .eq("inspection_id", inspectionId)
-              .order("severity", { ascending: true });
-            if (items && items.length > 0) {
-              toast({ title: "Analysis Complete", description: `Found ${items.length} damage item(s).` });
-              setDamageResults({
-                inspectionId,
-                items: items.map((d) => ({
-                  type: d.damage_type,
-                  location_on_car: d.location_on_car,
-                  size_estimate: d.size_estimate,
-                  severity: d.severity,
-                  confidence_score: d.confidence_score,
-                  repair_cost_estimate_aed: d.repair_cost_estimate_aed ? Number(d.repair_cost_estimate_aed) : undefined,
-                  description: d.description,
-                  status: d.status,
-                  detected_by_model: d.detected_by_model,
-                  photo_position: d.photo_position,
-                })),
+            if (pollError) throw pollError;
+
+            if (!insp) {
+              toast({
+                title: "Inspection not found",
+                description: "This inspection was removed before analysis could finish.",
+                variant: "destructive",
+              });
+              await fetchData();
+              return;
+            }
+
+            if (insp.status === "processing" || insp.status === "pending") continue;
+
+            if (insp.status === "failed") {
+              toast({
+                title: "Analysis Failed",
+                description: "The AI analysis encountered an error.",
+                variant: "destructive",
               });
             } else {
-              toast({ title: "Analysis Complete", description: "No damage detected." });
+              const { data: items } = await supabase
+                .from("damage_items")
+                .select("*")
+                .eq("inspection_id", inspectionId)
+                .order("severity", { ascending: true });
+
+              if (items && items.length > 0) {
+                toast({
+                  title: insp.status === "partial" ? "Partial Analysis Complete" : "Analysis Complete",
+                  description: `Found ${items.length} damage item(s).`,
+                });
+                setDamageResults({
+                  inspectionId,
+                  items: items.map((d) => ({
+                    type: d.damage_type,
+                    location_on_car: d.location_on_car,
+                    size_estimate: d.size_estimate,
+                    severity: d.severity,
+                    confidence_score: d.confidence_score,
+                    repair_cost_estimate_aed: d.repair_cost_estimate_aed ? Number(d.repair_cost_estimate_aed) : undefined,
+                    description: d.description,
+                    status: d.status,
+                    detected_by_model: d.detected_by_model,
+                    photo_position: d.photo_position,
+                  })),
+                });
+              } else {
+                toast({
+                  title: insp.status === "partial" ? "Partial Analysis Complete" : "Analysis Complete",
+                  description:
+                    insp.status === "partial"
+                      ? "The scan timed out before any damage items could be saved."
+                      : "No damage detected.",
+                });
+              }
             }
+
+            await fetchData();
+            return;
           }
-          fetchData();
+
+          toast({
+            title: "Analysis Still Running",
+            description: "The scan is taking longer than expected. Refresh in a moment to check the latest status.",
+          });
+          await fetchData();
+        } catch (pollError: any) {
+          toast({
+            title: "Analysis Failed",
+            description: pollError.message || "Could not track the analysis status.",
+            variant: "destructive",
+          });
+        } finally {
           setAnalysing(null);
-          return;
         }
-        toast({ title: "Analysis Timeout", description: "Analysis is taking longer than expected. Check back later.", variant: "destructive" });
-        setAnalysing(null);
       };
-      poll();
+
+      void poll();
     } catch (err: any) {
       toast({ title: "Analysis Failed", description: err.message || "Could not start the analysis.", variant: "destructive" });
       setAnalysing(null);
