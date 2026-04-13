@@ -60,6 +60,33 @@
   50% { box-shadow: 0 0 14px 4px rgba(239, 68, 68, 0.7); }
 }
 
+@keyframes ar-scan-line {
+  0% { top: 0%; }
+  100% { top: 100%; }
+}
+
+@keyframes ar-bracket-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes ar-arrow-bounce {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(8px); }
+}
+
+.ar-scan-line {
+  animation: ar-scan-line 2.5s linear infinite;
+}
+
+.ar-bracket-pulse {
+  animation: ar-bracket-pulse 2s ease-in-out infinite;
+}
+
+.ar-arrow-bounce {
+  animation: ar-arrow-bounce 1s ease-in-out infinite;
+}
+
 @media print {
   body {
     background: white !important;
