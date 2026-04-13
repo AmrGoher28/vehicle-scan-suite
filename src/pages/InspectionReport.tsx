@@ -21,6 +21,8 @@ interface DamageItem {
   description: string | null; photo_position: number | null;
   status: string; detected_by_model: string | null;
   damage_x_percent: number | null; damage_y_percent: number | null;
+  bbox_ymin: number | null; bbox_xmin: number | null;
+  bbox_ymax: number | null; bbox_xmax: number | null;
 }
 interface Photo {
   id: string; position_number: number; position_name: string; photo_url: string;
@@ -30,15 +32,14 @@ interface Photo {
 const severityOrder: Record<string, number> = { severe: 0, moderate: 1, minor: 2 };
 
 const severityColors = (s: string) => {
-  if (s === "severe") return { bg: "bg-red-100", text: "text-red-800", border: "border-red-300", dot: "#ef4444", ring: "ring-red-400" };
-  if (s === "moderate") return { bg: "bg-amber-100", text: "text-amber-800", border: "border-amber-300", dot: "#f59e0b", ring: "ring-amber-400" };
-  return { bg: "bg-emerald-100", text: "text-emerald-800", border: "border-emerald-300", dot: "#22c55e", ring: "ring-emerald-400" };
+  if (s === "severe") return { bg: "bg-red-100", text: "text-red-800", border: "border-red-300", dot: "#ef4444", ring: "ring-red-400", stroke: "#ef4444" };
+  if (s === "moderate") return { bg: "bg-amber-100", text: "text-amber-800", border: "border-amber-300", dot: "#f59e0b", ring: "ring-amber-400", stroke: "#f59e0b" };
+  return { bg: "bg-emerald-100", text: "text-emerald-800", border: "border-emerald-300", dot: "#22c55e", ring: "ring-emerald-400", stroke: "#22c55e" };
 };
 
 /** Map location text → approximate x,y % on a photo */
 const locationToPhotoXY = (loc: string): { x: number; y: number } => {
   const l = loc.toLowerCase();
-  // vertical
   let y = 50;
   if (l.includes("lower") || l.includes("bottom") || l.includes("sill") || l.includes("wheel") || l.includes("alloy") || l.includes("tyre") || l.includes("tire")) y = 80;
   else if (l.includes("upper") || l.includes("top") || l.includes("roof")) y = 15;
@@ -46,7 +47,6 @@ const locationToPhotoXY = (loc: string): { x: number; y: number } => {
   else if (l.includes("hood") || l.includes("bonnet") || l.includes("trunk") || l.includes("boot")) y = 25;
   else if (l.includes("windshield") || l.includes("windscreen")) y = 20;
   else if (l.includes("door") || l.includes("panel") || l.includes("mirror")) y = 45;
-  // horizontal
   let x = 50;
   if (l.includes("left")) x = 25;
   else if (l.includes("right")) x = 75;
@@ -54,44 +54,57 @@ const locationToPhotoXY = (loc: string): { x: number; y: number } => {
   return { x, y };
 };
 
-/** Infer the best photo position (1-8) from location text.
- *  Positions: 1=Front Centre, 2=Front-Left, 3=Left Side, 4=Rear-Left,
- *  5=Rear Centre, 6=Rear-Right, 7=Right Side, 8=Front-Right */
+/**
+ * Convert a DamageItem's bounding box (0-1000) to CSS percentages.
+ * Falls back to legacy damage_x/y_percent → small box, then text heuristic.
+ */
+function getBoundingBoxPercent(item: DamageItem): {
+  left: number; top: number; width: number; height: number; hasPreciseBox: boolean;
+} {
+  if (item.bbox_ymin != null && item.bbox_xmin != null && item.bbox_ymax != null && item.bbox_xmax != null) {
+    return {
+      left: item.bbox_xmin / 10,
+      top: item.bbox_ymin / 10,
+      width: (item.bbox_xmax - item.bbox_xmin) / 10,
+      height: (item.bbox_ymax - item.bbox_ymin) / 10,
+      hasPreciseBox: true,
+    };
+  }
+  if (item.damage_x_percent != null && item.damage_y_percent != null) {
+    const pad = 3;
+    return {
+      left: Math.max(0, item.damage_x_percent - pad),
+      top: Math.max(0, item.damage_y_percent - pad),
+      width: pad * 2, height: pad * 2, hasPreciseBox: false,
+    };
+  }
+  const fallback = locationToPhotoXY(item.location_on_car);
+  return { left: Math.max(0, fallback.x - 3), top: Math.max(0, fallback.y - 3), width: 6, height: 6, hasPreciseBox: false };
+}
+
 const inferPhotoPosition = (location: string): number => {
   const l = location.toLowerCase();
-  const hasLeft = l.includes("left");
-  const hasRight = l.includes("right");
+  const hasLeft = l.includes("left"); const hasRight = l.includes("right");
   const hasFront = l.includes("front") || l.includes("bonnet") || l.includes("hood") || l.includes("windshield") || l.includes("windscreen") || l.includes("grille") || l.includes("headlight");
   const hasRear = l.includes("rear") || l.includes("boot") || l.includes("trunk") || l.includes("tail") || l.includes("exhaust");
-
-  if (hasFront && hasLeft) return 2;
-  if (hasFront && hasRight) return 8;
-  if (hasFront) return 1;
-  if (hasRear && hasLeft) return 4;
-  if (hasRear && hasRight) return 6;
-  if (hasRear) return 5;
-  if (hasLeft) return 3;
-  if (hasRight) return 7;
-  return 1; // default to front centre
+  if (hasFront && hasLeft) return 2; if (hasFront && hasRight) return 8;
+  if (hasFront) return 1; if (hasRear && hasLeft) return 4;
+  if (hasRear && hasRight) return 6; if (hasRear) return 5;
+  if (hasLeft) return 3; if (hasRight) return 7; return 1;
 };
 
-/** Map location text → coords on SVG damage map (0-200) */
 const locationToCoords = (location: string): { x: number; y: number } => {
   const l = location.toLowerCase();
   if (l.includes("front") && l.includes("left")) return { x: 65, y: 35 };
   if (l.includes("front") && l.includes("right")) return { x: 135, y: 35 };
-  if (l.includes("front") && (l.includes("bumper") || l.includes("centre") || l.includes("center") || l.includes("grille") || l.includes("hood") || l.includes("bonnet")))
-    return { x: 100, y: 25 };
+  if (l.includes("front") && (l.includes("bumper") || l.includes("centre") || l.includes("center") || l.includes("grille") || l.includes("hood") || l.includes("bonnet"))) return { x: 100, y: 25 };
   if (l.includes("front")) return { x: 100, y: 30 };
   if (l.includes("rear") && l.includes("left")) return { x: 65, y: 165 };
   if (l.includes("rear") && l.includes("right")) return { x: 135, y: 165 };
-  if (l.includes("rear") && (l.includes("bumper") || l.includes("centre") || l.includes("center") || l.includes("boot") || l.includes("trunk")))
-    return { x: 100, y: 175 };
+  if (l.includes("rear") && (l.includes("bumper") || l.includes("centre") || l.includes("center") || l.includes("boot") || l.includes("trunk"))) return { x: 100, y: 175 };
   if (l.includes("rear")) return { x: 100, y: 170 };
-  if (l.includes("left") && (l.includes("door") || l.includes("side") || l.includes("sill") || l.includes("panel") || l.includes("mirror")))
-    return { x: 55, y: 100 };
-  if (l.includes("right") && (l.includes("door") || l.includes("side") || l.includes("sill") || l.includes("panel") || l.includes("mirror")))
-    return { x: 145, y: 100 };
+  if (l.includes("left") && (l.includes("door") || l.includes("side") || l.includes("sill") || l.includes("panel") || l.includes("mirror"))) return { x: 55, y: 100 };
+  if (l.includes("right") && (l.includes("door") || l.includes("side") || l.includes("sill") || l.includes("panel") || l.includes("mirror"))) return { x: 145, y: 100 };
   if (l.includes("left")) return { x: 60, y: 100 };
   if (l.includes("right")) return { x: 140, y: 100 };
   if (l.includes("roof") || l.includes("top")) return { x: 100, y: 100 };
@@ -102,35 +115,52 @@ const locationToCoords = (location: string): { x: number; y: number } => {
 
 /* ─── Sub-components ─── */
 
-const DamageMarker = ({ item, index }: { item: DamageItem; index: number }) => {
+const DamageBoundingBox = ({ item, index }: { item: DamageItem; index: number }) => {
   const [showTip, setShowTip] = useState(false);
-  const fallback = locationToPhotoXY(item.location_on_car);
-  const xPct = item.damage_x_percent ?? fallback.x;
-  const yPct = item.damage_y_percent ?? fallback.y;
+  const box = getBoundingBoxPercent(item);
+  const col = severityColors(item.severity);
 
   return (
     <div
       className="absolute z-10 cursor-pointer"
-      style={{ left: `${xPct}%`, top: `${yPct}%`, transform: "translate(-50%,-50%)" }}
+      style={{ left: `${box.left}%`, top: `${box.top}%`, width: `${box.width}%`, height: `${box.height}%` }}
       onMouseEnter={() => setShowTip(true)}
       onMouseLeave={() => setShowTip(false)}
       onClick={() => setShowTip(!showTip)}
     >
+      {/* Bounding box rectangle */}
       <div
-        className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
+        className="w-full h-full rounded-sm"
         style={{
-          border: "2px solid #ef4444",
+          border: `2px solid ${col.stroke}`,
           animation: "pulseGlow 2s ease-in-out infinite",
-          backgroundColor: "rgba(239, 68, 68, 0.15)",
+          backgroundColor: `${col.stroke}15`,
         }}
+      />
+
+      {/* Number label */}
+      <div
+        className="absolute -top-2 -left-2 w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
+        style={{ backgroundColor: col.stroke }}
       >
         {index + 1}
       </div>
+
+      {/* Imprecise indicator */}
+      {!box.hasPreciseBox && (
+        <div className="absolute -bottom-3 left-1/2 -translate-x-1/2 text-[7px] text-gray-500 bg-white/80 px-1 rounded">
+          approx
+        </div>
+      )}
+
+      {/* Tooltip */}
       {showTip && (
         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-gray-900 text-white text-xs rounded-lg p-2 shadow-lg z-50 pointer-events-none">
           <p className="font-semibold capitalize">{item.damage_type}</p>
           <p className="capitalize">{item.severity} — {item.location_on_car}</p>
+          {item.size_estimate && <p>Size: {item.size_estimate}</p>}
           {item.description && <p className="mt-1 opacity-80">{item.description}</p>}
+          {item.confidence_score != null && <p>Confidence: {item.confidence_score}%</p>}
         </div>
       )}
     </div>
@@ -139,44 +169,45 @@ const DamageMarker = ({ item, index }: { item: DamageItem; index: number }) => {
 
 const DamageCard = ({ item, index, photo }: { item: DamageItem; index: number; photo?: Photo }) => {
   const col = severityColors(item.severity);
-  const fallback = locationToPhotoXY(item.location_on_car);
-  const xPct = item.damage_x_percent ?? fallback.x;
-  const yPct = item.damage_y_percent ?? fallback.y;
+  const box = getBoundingBoxPercent(item);
+  const centerX = box.left + box.width / 2;
+  const centerY = box.top + box.height / 2;
 
   return (
     <div className="flex items-stretch gap-0 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      {/* Dual image view */}
       {photo && (
         <div className="flex flex-shrink-0">
           {/* Main annotated photo */}
           <div className="relative w-[250px] h-[180px] bg-gray-100">
             <img src={photo.photo_url} alt={photo.position_name} className="w-full h-full object-cover" />
-            {/* Red circle with number */}
+            {/* Bounding box rectangle */}
             <div
-              className="absolute w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold pointer-events-none"
+              className="absolute rounded-sm pointer-events-none"
               style={{
-                left: `${xPct}%`,
-                top: `${yPct}%`,
-                transform: "translate(-50%, -50%)",
-                border: "2px solid #ef4444",
+                left: `${box.left}%`, top: `${box.top}%`,
+                width: `${box.width}%`, height: `${box.height}%`,
+                border: `2px solid ${col.stroke}`,
                 animation: "pulseGlow 2s ease-in-out infinite",
-                backgroundColor: "rgba(239, 68, 68, 0.15)",
-                color: "#ef4444",
+                backgroundColor: `${col.stroke}15`,
+              }}
+            />
+            {/* Number badge */}
+            <div
+              className="absolute w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white pointer-events-none"
+              style={{
+                left: `${box.left}%`, top: `${box.top}%`,
+                transform: "translate(-50%, -50%)",
+                backgroundColor: col.stroke,
               }}
             >
               {index + 1}
             </div>
-            {/* Connecting line to zoom panel */}
+            {/* Connecting line */}
             <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 250 180" preserveAspectRatio="none">
               <line
-                x1={xPct * 2.5}
-                y1={yPct * 1.8}
-                x2={250}
-                y2={90}
-                stroke="#ef4444"
-                strokeWidth="1"
-                strokeDasharray="4,3"
-                opacity="0.6"
+                x1={centerX * 2.5} y1={centerY * 1.8}
+                x2={250} y2={90}
+                stroke={col.stroke} strokeWidth="1" strokeDasharray="4,3" opacity="0.6"
               />
             </svg>
           </div>
@@ -190,7 +221,7 @@ const DamageCard = ({ item, index, photo }: { item: DamageItem; index: number; p
               style={{
                 backgroundImage: `url(${photo.photo_url})`,
                 backgroundSize: "300%",
-                backgroundPosition: `${xPct}% ${yPct}%`,
+                backgroundPosition: `${centerX}% ${centerY}%`,
                 backgroundRepeat: "no-repeat",
               }}
             />
@@ -209,9 +240,20 @@ const DamageCard = ({ item, index, photo }: { item: DamageItem; index: number; p
       {/* Details */}
       <div className="flex-1 min-w-0 p-4">
         <p className="font-semibold text-gray-900 capitalize text-base">{item.damage_type}</p>
-        <p className="text-sm text-gray-500 mt-0.5">{item.location_on_car}{item.size_estimate ? ` · ${item.size_estimate}` : ""}</p>
+        <p className="text-sm text-gray-500 mt-0.5">
+          {item.location_on_car}{item.size_estimate ? ` · ${item.size_estimate}` : ""}
+        </p>
         {item.description && <p className="text-sm text-gray-600 mt-1.5 line-clamp-2">{item.description}</p>}
-        {item.confidence_score != null && <p className="text-xs text-gray-400 mt-1">Confidence: {item.confidence_score}%</p>}
+        <div className="flex items-center gap-2 mt-1">
+          {item.confidence_score != null && (
+            <p className="text-xs text-gray-400">Confidence: {item.confidence_score}%</p>
+          )}
+          {item.bbox_ymin != null ? (
+            <span className="text-[10px] text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded">Precise location</span>
+          ) : (
+            <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">Approximate location</span>
+          )}
+        </div>
       </div>
 
       {/* Cost */}
@@ -265,7 +307,6 @@ const InspectionReport = () => {
     load();
   }, [user, inspectionId]);
 
-  // Fetch AI summary once damage items are loaded
   useEffect(() => {
     if (damageItems.length === 0 || summary !== null) return;
     const fetchSummary = async () => {
@@ -297,6 +338,7 @@ const InspectionReport = () => {
   const totalCost = damageItems.reduce((s, d) => s + (d.repair_cost_estimate_aed ? Number(d.repair_cost_estimate_aed) : 0), 0);
   const countBySeverity = (sev: string) => damageItems.filter((d) => d.severity === sev).length;
   const priorityItems = damageItems.filter((d) => d.severity === "severe" || d.severity === "moderate");
+  const preciseCount = damageItems.filter((d) => d.bbox_ymin != null).length;
 
   const whatsappText = encodeURIComponent(
     `Vehicle Inspection Report for ${vehicle.plate_number} - ${inspection.inspection_date} - ${damageItems.length} items found. View report: ${window.location.href}`
@@ -304,7 +346,15 @@ const InspectionReport = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900">
-      {/* Action buttons — hidden when printing */}
+      {/* Pulse animation for bounding boxes */}
+      <style>{`
+        @keyframes pulseGlow {
+          0%, 100% { opacity: 0.85; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
+
+      {/* Action buttons */}
       <div className="print:hidden sticky top-0 z-50 bg-white border-b border-gray-200 px-6 py-3 shadow-sm">
         <div className="mx-auto max-w-4xl flex items-center gap-3">
           <Button variant="outline" size="sm" className="gap-2" onClick={() => navigate(`/vehicle/${vehicle.id}`)}>
@@ -357,7 +407,7 @@ const InspectionReport = () => {
           </div>
         </section>
 
-        {/* ── EXECUTIVE SUMMARY (AI) ── */}
+        {/* ── EXECUTIVE SUMMARY ── */}
         <section>
           <h2 className="text-xl font-bold mb-4">Inspection Summary</h2>
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-5 flex gap-4">
@@ -370,6 +420,12 @@ const InspectionReport = () => {
               )}
             </div>
           </div>
+          {damageItems.length > 0 && (
+            <p className="text-xs text-gray-400 mt-2">
+              {preciseCount} of {damageItems.length} damage item(s) have precise bounding box locations.
+              {preciseCount < damageItems.length && ` ${damageItems.length - preciseCount} use approximate positioning.`}
+            </p>
+          )}
         </section>
 
         <hr className="border-gray-200" />
@@ -380,9 +436,10 @@ const InspectionReport = () => {
             <h2 className="text-xl font-bold mb-4">Inspection Photos</h2>
             <div className="grid grid-cols-4 gap-4 print:grid-cols-4">
               {photos.map((p) => {
-                const matchingDamage = damageItems.filter((d) => 
-                  d.photo_position === p.position_number || 
-                  (!d.photo_position && inferPhotoPosition(d.location_on_car) === p.position_number)
+                const matchingDamage = damageItems.filter(
+                  (d) =>
+                    d.photo_position === p.position_number ||
+                    (!d.photo_position && inferPhotoPosition(d.location_on_car) === p.position_number)
                 );
                 return (
                   <div key={p.id} className="space-y-1.5">
@@ -390,10 +447,15 @@ const InspectionReport = () => {
                       <img src={p.photo_url} alt={p.position_name} className="w-full h-full object-cover" />
                       {matchingDamage.map((d) => {
                         const globalIdx = damageItems.indexOf(d);
-                        return <DamageMarker key={d.id} item={d} index={globalIdx} />;
+                        return <DamageBoundingBox key={d.id} item={d} index={globalIdx} />;
                       })}
                     </div>
-                    <p className="text-xs text-gray-500 text-center font-medium">{p.position_number}. {p.position_name}</p>
+                    <p className="text-xs text-gray-500 text-center font-medium">
+                      {p.position_number}. {p.position_name}
+                      {matchingDamage.length > 0 && (
+                        <span className="text-red-500 ml-1">({matchingDamage.length} found)</span>
+                      )}
+                    </p>
                   </div>
                 );
               })}
@@ -438,7 +500,7 @@ const InspectionReport = () => {
                   const idx = damageItems.indexOf(item);
                   const col = severityColors(item.severity);
                   return (
-                    <div key={item.id} className={`flex items-stretch gap-4 rounded-xl border-l-4 border-red-500 bg-red-50 p-5 shadow-sm`}>
+                    <div key={item.id} className="flex items-stretch gap-4 rounded-xl border-l-4 border-red-500 bg-red-50 p-5 shadow-sm">
                       <div className={`flex flex-col items-center justify-center rounded-lg px-3 py-2 ${col.bg}`}>
                         <span className={`text-xl font-bold ${col.text}`}>#{idx + 1}</span>
                         <span className={`text-[10px] font-semibold uppercase ${col.text}`}>{item.severity}</span>
