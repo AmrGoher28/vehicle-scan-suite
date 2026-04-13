@@ -19,6 +19,8 @@ export type Database = {
           confidence_score: number | null
           created_at: string
           damage_type: string
+          damage_x_percent: number | null
+          damage_y_percent: number | null
           description: string | null
           detected_by_model: string | null
           id: string
@@ -34,6 +36,8 @@ export type Database = {
           confidence_score?: number | null
           created_at?: string
           damage_type: string
+          damage_x_percent?: number | null
+          damage_y_percent?: number | null
           description?: string | null
           detected_by_model?: string | null
           id?: string
@@ -49,6 +53,8 @@ export type Database = {
           confidence_score?: number | null
           created_at?: string
           damage_type?: string
+          damage_x_percent?: number | null
+          damage_y_percent?: number | null
           description?: string | null
           detected_by_model?: string | null
           id?: string

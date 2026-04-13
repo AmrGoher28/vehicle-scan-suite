@@ -1,0 +1,1 @@
+ALTER TABLE public.damage_items ADD COLUMN damage_x_percent NUMERIC, ADD COLUMN damage_y_percent NUMERIC;
