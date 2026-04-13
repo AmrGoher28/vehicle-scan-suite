@@ -53,6 +53,27 @@ const locationToPhotoXY = (loc: string): { x: number; y: number } => {
   return { x, y };
 };
 
+/** Infer the best photo position (1-8) from location text.
+ *  Positions: 1=Front Centre, 2=Front-Left, 3=Left Side, 4=Rear-Left,
+ *  5=Rear Centre, 6=Rear-Right, 7=Right Side, 8=Front-Right */
+const inferPhotoPosition = (location: string): number => {
+  const l = location.toLowerCase();
+  const hasLeft = l.includes("left");
+  const hasRight = l.includes("right");
+  const hasFront = l.includes("front") || l.includes("bonnet") || l.includes("hood") || l.includes("windshield") || l.includes("windscreen") || l.includes("grille") || l.includes("headlight");
+  const hasRear = l.includes("rear") || l.includes("boot") || l.includes("trunk") || l.includes("tail") || l.includes("exhaust");
+
+  if (hasFront && hasLeft) return 2;
+  if (hasFront && hasRight) return 8;
+  if (hasFront) return 1;
+  if (hasRear && hasLeft) return 4;
+  if (hasRear && hasRight) return 6;
+  if (hasRear) return 5;
+  if (hasLeft) return 3;
+  if (hasRight) return 7;
+  return 1; // default to front centre
+};
+
 /** Map location text → coords on SVG damage map (0-200) */
 const locationToCoords = (location: string): { x: number; y: number } => {
   const l = location.toLowerCase();
@@ -343,7 +364,10 @@ const InspectionReport = () => {
             <h2 className="text-xl font-bold mb-4">Inspection Photos</h2>
             <div className="grid grid-cols-4 gap-4 print:grid-cols-4">
               {photos.map((p) => {
-                const matchingDamage = damageItems.filter((d) => d.photo_position === p.position_number);
+                const matchingDamage = damageItems.filter((d) => 
+                  d.photo_position === p.position_number || 
+                  (!d.photo_position && inferPhotoPosition(d.location_on_car) === p.position_number)
+                );
                 return (
                   <div key={p.id} className="space-y-1.5">
                     <div className="relative aspect-video rounded-lg overflow-hidden bg-gray-100 shadow-sm">
@@ -427,7 +451,10 @@ const InspectionReport = () => {
             <div className="space-y-3">
               <h3 className="text-lg font-semibold mb-2">All Damage Items</h3>
               {damageItems.map((d, i) => (
-                <DamageCard key={d.id} item={d} index={i} photo={photos.find(p => p.position_number === d.photo_position)} />
+                <DamageCard key={d.id} item={d} index={i} photo={
+                  photos.find(p => p.position_number === d.photo_position) ||
+                  photos.find(p => p.position_number === inferPhotoPosition(d.location_on_car))
+                } />
               ))}
             </div>
           ) : (
