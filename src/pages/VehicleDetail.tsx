@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import AddInspectionDialog from "@/components/AddInspectionDialog";
-import { ArrowLeft, Car } from "lucide-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import InspectionCaptureFlow from "@/components/InspectionCaptureFlow";
+import { ArrowLeft, Car, Camera, Image } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose,
+} from "@/components/ui/dialog";
 
 interface Vehicle {
   id: string;
@@ -21,9 +25,17 @@ interface Vehicle {
 interface Inspection {
   id: string;
   inspection_date: string;
+  inspection_type: string;
   notes: string | null;
   status: string;
   created_at: string;
+}
+
+interface InspectionPhoto {
+  id: string;
+  position_number: number;
+  position_name: string;
+  photo_url: string;
 }
 
 const statusColor = (status: string) => {
@@ -42,6 +54,10 @@ const VehicleDetail = () => {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showCaptureFlow, setShowCaptureFlow] = useState(false);
+  const [inspectionType, setInspectionType] = useState<"check-in" | "check-out">("check-out");
+  const [typeDialogOpen, setTypeDialogOpen] = useState(false);
+  const [viewingPhotos, setViewingPhotos] = useState<InspectionPhoto[] | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -65,6 +81,20 @@ const VehicleDetail = () => {
     if (user) fetchData();
   }, [user, id]);
 
+  const viewPhotos = async (inspectionId: string) => {
+    const { data } = await supabase
+      .from("inspection_photos")
+      .select("*")
+      .eq("inspection_id", inspectionId)
+      .order("position_number", { ascending: true });
+    if (data) setViewingPhotos(data);
+  };
+
+  const startInspection = () => {
+    setTypeDialogOpen(false);
+    setShowCaptureFlow(true);
+  };
+
   if (authLoading || loading) {
     return (
       <div className="flex min-h-screen items-center justify-center">
@@ -78,6 +108,20 @@ const VehicleDetail = () => {
       <div className="flex min-h-screen items-center justify-center">
         <div className="text-muted-foreground">Vehicle not found</div>
       </div>
+    );
+  }
+
+  if (showCaptureFlow) {
+    return (
+      <InspectionCaptureFlow
+        vehicleId={vehicle.id}
+        inspectionType={inspectionType}
+        onComplete={() => {
+          setShowCaptureFlow(false);
+          fetchData();
+        }}
+        onCancel={() => setShowCaptureFlow(false)}
+      />
     );
   }
 
@@ -120,7 +164,40 @@ const VehicleDetail = () => {
         <div>
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Inspections</h3>
-            <AddInspectionDialog vehicleId={vehicle.id} onInspectionAdded={fetchData} />
+            <Dialog open={typeDialogOpen} onOpenChange={setTypeDialogOpen}>
+              <DialogTrigger asChild>
+                <Button className="gap-2">
+                  <Camera className="h-4 w-4" />
+                  New Inspection
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Start New Inspection</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">Inspection Type</label>
+                    <Select value={inspectionType} onValueChange={(v) => setInspectionType(v as "check-in" | "check-out")}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="check-out">Check-Out</SelectItem>
+                        <SelectItem value="check-in">Check-In</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    You'll be guided through 8 positions around the vehicle to capture photos.
+                  </p>
+                  <Button className="w-full gap-2" onClick={startInspection}>
+                    <Camera className="h-4 w-4" />
+                    Start Capture
+                  </Button>
+                </div>
+              </DialogContent>
+            </Dialog>
           </div>
 
           {inspections.length === 0 ? (
@@ -131,8 +208,20 @@ const VehicleDetail = () => {
                 <Card key={insp.id}>
                   <CardContent className="flex items-start justify-between p-4">
                     <div className="space-y-1">
-                      <p className="text-sm font-medium">{new Date(insp.inspection_date).toLocaleDateString()}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium">{new Date(insp.inspection_date).toLocaleDateString()}</p>
+                        <Badge variant="secondary" className="text-xs capitalize">
+                          {insp.inspection_type.replace("-", " ")}
+                        </Badge>
+                      </div>
                       {insp.notes && <p className="text-sm text-muted-foreground">{insp.notes}</p>}
+                      <button
+                        onClick={() => viewPhotos(insp.id)}
+                        className="flex items-center gap-1 text-xs text-primary hover:underline mt-1"
+                      >
+                        <Image className="h-3 w-3" />
+                        View Photos
+                      </button>
                     </div>
                     <Badge variant="outline" className={statusColor(insp.status)}>
                       {insp.status.replace("_", " ")}
@@ -143,6 +232,25 @@ const VehicleDetail = () => {
             </div>
           )}
         </div>
+
+        {/* Photo viewer dialog */}
+        <Dialog open={!!viewingPhotos} onOpenChange={() => setViewingPhotos(null)}>
+          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Inspection Photos</DialogTitle>
+            </DialogHeader>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {viewingPhotos?.map((photo) => (
+                <div key={photo.id} className="space-y-1">
+                  <div className="aspect-video rounded-lg overflow-hidden bg-secondary">
+                    <img src={photo.photo_url} alt={photo.position_name} className="h-full w-full object-cover" />
+                  </div>
+                  <p className="text-xs text-muted-foreground text-center">{photo.position_number}. {photo.position_name}</p>
+                </div>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );
