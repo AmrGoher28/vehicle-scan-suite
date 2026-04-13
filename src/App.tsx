@@ -7,6 +7,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import VehicleDetail from "./pages/VehicleDetail";
+import InspectionReport from "./pages/InspectionReport";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -22,6 +23,7 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/vehicle/:id" element={<VehicleDetail />} />
+            <Route path="/report/:inspectionId" element={<InspectionReport />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </AuthProvider>

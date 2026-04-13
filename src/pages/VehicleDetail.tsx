@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import InspectionCaptureFlow from "@/components/InspectionCaptureFlow";
 import DamageResults from "@/components/DamageResults";
-import { ArrowLeft, Car, Camera, Image, Scan, Loader2 } from "lucide-react";
+import { ArrowLeft, Car, Camera, Image, Scan, Loader2, FileText } from "lucide-react";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
@@ -351,6 +351,15 @@ const VehicleDetail = () => {
                           <Scan className="h-3 w-3" />
                           Damage Report
                         </button>
+                        {(insp.status === "needs_repair" || insp.status === "passed" || insp.status === "partial") && (
+                          <button
+                            onClick={() => navigate(`/report/${insp.id}`)}
+                            className="flex items-center gap-1 text-xs text-primary hover:underline"
+                          >
+                            <FileText className="h-3 w-3" />
+                            Generate Report
+                          </button>
+                        )}
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
