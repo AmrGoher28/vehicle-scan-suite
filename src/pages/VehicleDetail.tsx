@@ -7,10 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import InspectionCaptureFlow from "@/components/InspectionCaptureFlow";
-import { ArrowLeft, Car, Camera, Image } from "lucide-react";
+import DamageResults from "@/components/DamageResults";
+import { ArrowLeft, Car, Camera, Image, Scan, Loader2 } from "lucide-react";
 import {
-  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogClose,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger,
 } from "@/components/ui/dialog";
+import { useToast } from "@/hooks/use-toast";
 
 interface Vehicle {
   id: string;
@@ -51,6 +53,7 @@ const VehicleDetail = () => {
   const { id } = useParams<{ id: string }>();
   const { user, loading: authLoading } = useAuth();
   const navigate = useNavigate();
+  const { toast } = useToast();
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [inspections, setInspections] = useState<Inspection[]>([]);
   const [loading, setLoading] = useState(true);
@@ -58,6 +61,8 @@ const VehicleDetail = () => {
   const [inspectionType, setInspectionType] = useState<"check-in" | "check-out">("check-out");
   const [typeDialogOpen, setTypeDialogOpen] = useState(false);
   const [viewingPhotos, setViewingPhotos] = useState<InspectionPhoto[] | null>(null);
+  const [analysing, setAnalysing] = useState<string | null>(null);
+  const [damageResults, setDamageResults] = useState<{ inspectionId: string; items: any[] } | null>(null);
 
   useEffect(() => {
     if (!authLoading && !user) navigate("/login");
@@ -88,6 +93,60 @@ const VehicleDetail = () => {
       .eq("inspection_id", inspectionId)
       .order("position_number", { ascending: true });
     if (data) setViewingPhotos(data);
+  };
+
+  const viewDamageReport = async (inspectionId: string) => {
+    const { data } = await supabase
+      .from("damage_items")
+      .select("*")
+      .eq("inspection_id", inspectionId)
+      .order("severity", { ascending: true });
+    if (data && data.length > 0) {
+      setDamageResults({
+        inspectionId,
+        items: data.map((d) => ({
+          type: d.damage_type,
+          location_on_car: d.location_on_car,
+          size_estimate: d.size_estimate,
+          severity: d.severity,
+          confidence_score: d.confidence_score,
+          repair_cost_estimate_aed: d.repair_cost_estimate_aed ? Number(d.repair_cost_estimate_aed) : undefined,
+          description: d.description,
+          status: d.status,
+          detected_by_model: d.detected_by_model,
+          photo_position: d.photo_position,
+        })),
+      });
+    } else {
+      toast({ title: "No damage report", description: "Run an analysis first." });
+    }
+  };
+
+  const analyseInspection = async (inspectionId: string) => {
+    setAnalysing(inspectionId);
+    try {
+      const { data, error } = await supabase.functions.invoke("analyse-damage", {
+        body: { inspection_id: inspectionId },
+      });
+
+      if (error) throw error;
+
+      toast({
+        title: "Analysis Complete",
+        description: `Found ${data.confirmed} damage item(s). ${data.rejected} rejected.`,
+      });
+
+      setDamageResults({ inspectionId, items: data.damage_items });
+      fetchData();
+    } catch (err: any) {
+      toast({
+        title: "Analysis Failed",
+        description: err.message || "Could not complete the analysis.",
+        variant: "destructive",
+      });
+    } finally {
+      setAnalysing(null);
+    }
   };
 
   const startInspection = () => {
@@ -122,6 +181,29 @@ const VehicleDetail = () => {
         }}
         onCancel={() => setShowCaptureFlow(false)}
       />
+    );
+  }
+
+  if (damageResults) {
+    return (
+      <div className="min-h-screen">
+        <header className="border-b border-border">
+          <div className="mx-auto flex max-w-7xl items-center gap-4 px-6 py-4">
+            <Button variant="ghost" size="icon" onClick={() => setDamageResults(null)}>
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <h1 className="text-xl font-bold tracking-tight">
+              <span className="text-primary">Damage</span> Report
+            </h1>
+          </div>
+        </header>
+        <main className="mx-auto max-w-3xl px-6 py-8">
+          <DamageResults
+            damageItems={damageResults.items}
+            onClose={() => setDamageResults(null)}
+          />
+        </main>
+      </div>
     );
   }
 
@@ -215,17 +297,41 @@ const VehicleDetail = () => {
                         </Badge>
                       </div>
                       {insp.notes && <p className="text-sm text-muted-foreground">{insp.notes}</p>}
-                      <button
-                        onClick={() => viewPhotos(insp.id)}
-                        className="flex items-center gap-1 text-xs text-primary hover:underline mt-1"
-                      >
-                        <Image className="h-3 w-3" />
-                        View Photos
-                      </button>
+                      <div className="flex items-center gap-3 mt-1">
+                        <button
+                          onClick={() => viewPhotos(insp.id)}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <Image className="h-3 w-3" />
+                          View Photos
+                        </button>
+                        <button
+                          onClick={() => viewDamageReport(insp.id)}
+                          className="flex items-center gap-1 text-xs text-primary hover:underline"
+                        >
+                          <Scan className="h-3 w-3" />
+                          Damage Report
+                        </button>
+                      </div>
                     </div>
-                    <Badge variant="outline" className={statusColor(insp.status)}>
-                      {insp.status.replace("_", " ")}
-                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="gap-1 text-xs"
+                        onClick={() => analyseInspection(insp.id)}
+                        disabled={analysing === insp.id}
+                      >
+                        {analysing === insp.id ? (
+                          <><Loader2 className="h-3 w-3 animate-spin" /> Analysing...</>
+                        ) : (
+                          <><Scan className="h-3 w-3" /> Analyse</>
+                        )}
+                      </Button>
+                      <Badge variant="outline" className={statusColor(insp.status)}>
+                        {insp.status.replace("_", " ")}
+                      </Badge>
+                    </div>
                   </CardContent>
                 </Card>
               ))}
