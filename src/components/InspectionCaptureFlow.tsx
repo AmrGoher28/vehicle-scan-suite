@@ -9,55 +9,70 @@ import { Camera, Video, X, CheckCircle, RotateCcw, ArrowRight, Check, MoveRight,
 
 // ─── AR Overlay Components ───────────────────────────────────────────────────
 
-/** Corner framing brackets that pulse to guide positioning */
-const FramingBrackets = () => (
-  <div className="absolute inset-0 pointer-events-none ar-bracket-pulse">
-    {/* Top-left */}
-    <div className="absolute top-[15%] left-[10%] w-12 h-12 border-t-2 border-l-2 border-primary rounded-tl-md" />
-    {/* Top-right */}
-    <div className="absolute top-[15%] right-[10%] w-12 h-12 border-t-2 border-r-2 border-primary rounded-tr-md" />
-    {/* Bottom-left */}
-    <div className="absolute bottom-[15%] left-[10%] w-12 h-12 border-b-2 border-l-2 border-primary rounded-bl-md" />
-    {/* Bottom-right */}
-    <div className="absolute bottom-[15%] right-[10%] w-12 h-12 border-b-2 border-r-2 border-primary rounded-br-md" />
+/** Corner framing brackets that stay visible and clearly mark the target area */
+const FramingBrackets = ({ label = "AR GUIDE" }: { label?: string }) => (
+  <div className="absolute inset-0 pointer-events-none">
+    <div className="absolute left-1/2 top-6 -translate-x-1/2 rounded-full border border-primary bg-background/85 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-[0.35em] text-primary shadow-lg">
+      {label}
+    </div>
+
+    <div className="absolute inset-[15%] rounded-[2rem] border border-primary/40" />
+    <div className="absolute left-1/2 top-1/2 h-24 w-24 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/35" />
+
+    <div className="absolute top-[14%] left-[9%] h-20 w-20 rounded-tl-xl border-l-[5px] border-t-[5px] border-primary ar-bracket-pulse" />
+    <div className="absolute top-[14%] right-[9%] h-20 w-20 rounded-tr-xl border-r-[5px] border-t-[5px] border-primary ar-bracket-pulse" />
+    <div className="absolute bottom-[14%] left-[9%] h-20 w-20 rounded-bl-xl border-b-[5px] border-l-[5px] border-primary ar-bracket-pulse" />
+    <div className="absolute bottom-[14%] right-[9%] h-20 w-20 rounded-br-xl border-b-[5px] border-r-[5px] border-primary ar-bracket-pulse" />
   </div>
 );
 
 /** Scanning line that sweeps vertically over the camera feed */
 const ScanLine = () => (
   <div className="absolute inset-0 pointer-events-none overflow-hidden">
-    <div className="ar-scan-line absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent opacity-60" />
+    <div className="ar-scan-line absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent opacity-90" />
   </div>
 );
 
 /** Distance indicator hint */
 const DistanceIndicator = ({ elapsed, zoneDuration }: { elapsed: number; zoneDuration: number }) => {
   const ratio = (elapsed % zoneDuration) / zoneDuration;
-  const label = ratio < 0.25 ? "Get closer" : ratio < 0.75 ? "Perfect distance" : "Step back slowly";
-  const color = ratio < 0.25 ? "text-yellow-400" : ratio < 0.75 ? "text-green-400" : "text-orange-400";
+  const state = ratio < 0.25
+    ? { label: "MOVE CLOSER", className: "border-border text-foreground" }
+    : ratio < 0.75
+    ? { label: "PERFECT DISTANCE", className: "border-primary text-primary" }
+    : { label: "STEP BACK", className: "border-border text-foreground" };
+
   return (
-    <div className={`absolute top-14 left-1/2 -translate-x-1/2 ${color} text-xs font-semibold bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm`}>
-      {label}
+    <div className={`absolute top-20 left-1/2 -translate-x-1/2 rounded-full border bg-background/85 px-4 py-2 text-sm font-semibold uppercase tracking-[0.2em] backdrop-blur-sm ${state.className}`}>
+      {state.label}
     </div>
   );
 };
 
 /** Large zone label overlay with walk direction arrow */
 const ZoneOverlay = ({ zone, nextDirection }: { zone: typeof ZONES[number]; nextDirection: "right" | "left" }) => (
-  <div className="absolute top-4 left-4 pointer-events-none">
-    <div className="bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 border border-primary/30">
-      <p className="text-primary text-lg font-bold tracking-wider">{zone.label.toUpperCase()}</p>
-      <div className="flex items-center gap-1.5 mt-1 ar-arrow-bounce">
-        {nextDirection === "right" ? <MoveRight className="h-3.5 w-3.5 text-primary/70" /> : <MoveLeft className="h-3.5 w-3.5 text-primary/70" />}
-        <span className="text-[10px] text-primary/70 font-medium">Walk {nextDirection}</span>
+  <div className="absolute left-4 top-4 pointer-events-none">
+    <div className="rounded-2xl border border-primary/30 bg-background/80 px-4 py-3 backdrop-blur-sm shadow-lg">
+      <p className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">Current zone</p>
+      <p className="mt-1 text-xl font-bold tracking-[0.18em] text-primary">{zone.label.toUpperCase()}</p>
+      <div className="mt-2 flex items-center gap-2 ar-arrow-bounce">
+        {nextDirection === "right" ? <MoveRight className="h-4 w-4 text-primary" /> : <MoveLeft className="h-4 w-4 text-primary" />}
+        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-foreground">Walk {nextDirection}</span>
       </div>
+    </div>
+  </div>
+);
+
+const GuideHint = ({ message }: { message: string }) => (
+  <div className="absolute inset-x-6 bottom-24 pointer-events-none flex justify-center">
+    <div className="max-w-md rounded-2xl border border-border bg-background/80 px-4 py-3 text-center text-sm font-medium text-foreground backdrop-blur-sm shadow-lg">
+      {message}
     </div>
   </div>
 );
 
 /** Vehicle silhouette guide for manual mode — shows outline matching the current position */
 const ManualFramingGuide = ({ position }: { position: number }) => {
-  // SVG outlines: front(1), rear(5) = face-on, sides(3,7) = profile, corners = angled
   const isFront = position === 1;
   const isRear = position === 5;
   const isSide = position === 3 || position === 7;
@@ -67,35 +82,32 @@ const ManualFramingGuide = ({ position }: { position: number }) => {
     <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
       <svg
         viewBox="0 0 200 140"
-        className="w-[60%] max-w-[300px] opacity-20"
+        className="w-[72%] max-w-[420px] opacity-100"
         style={{ transform: flip ? "scaleX(-1)" : undefined }}
       >
         {(isFront || isRear) ? (
-          /* Face-on view */
-          <g stroke="hsl(var(--primary))" strokeWidth="1.5" fill="none">
+          <g stroke="hsl(var(--primary))" strokeWidth="2.5" fill="none">
             <rect x="40" y="30" width="120" height="80" rx="12" />
             <rect x="50" y="40" width="100" height="30" rx="6" />
             <circle cx="60" cy="100" r="12" />
             <circle cx="140" cy="100" r="12" />
-            {isFront && <line x1="60" y1="38" x2="140" y2="38" strokeWidth="1" opacity="0.5" />}
+            {isFront && <line x1="60" y1="38" x2="140" y2="38" strokeWidth="1.5" opacity="0.65" />}
           </g>
         ) : isSide ? (
-          /* Side profile */
-          <g stroke="hsl(var(--primary))" strokeWidth="1.5" fill="none">
+          <g stroke="hsl(var(--primary))" strokeWidth="2.5" fill="none">
             <path d="M20,90 L20,60 Q20,40 40,35 L80,28 Q100,25 120,28 L160,35 Q180,40 180,60 L180,90" />
             <line x1="20" y1="90" x2="180" y2="90" />
             <circle cx="50" cy="95" r="14" />
             <circle cx="150" cy="95" r="14" />
-            <path d="M70,35 L70,60 L130,60 L130,35" opacity="0.5" />
+            <path d="M70,35 L70,60 L130,60 L130,35" opacity="0.65" />
           </g>
         ) : (
-          /* Corner / 3/4 view */
-          <g stroke="hsl(var(--primary))" strokeWidth="1.5" fill="none">
+          <g stroke="hsl(var(--primary))" strokeWidth="2.5" fill="none">
             <path d="M30,85 L30,55 Q35,38 55,32 L100,25 Q130,22 155,30 L170,40 Q178,50 178,65 L178,85" />
             <line x1="30" y1="85" x2="178" y2="85" />
             <circle cx="55" cy="90" r="13" />
             <circle cx="155" cy="90" r="13" />
-            <path d="M65,33 Q80,45 80,55 L140,55 Q140,38 130,30" opacity="0.5" />
+            <path d="M65,33 Q80,45 80,55 L140,55 Q140,38 130,30" opacity="0.65" />
           </g>
         )}
       </svg>
@@ -498,25 +510,28 @@ const InspectionCaptureFlow = ({
         )}
 
         {/* Camera preview */}
-        <div className="flex-1 relative overflow-hidden">
+        <div className="flex-1 relative overflow-hidden bg-muted/20">
           <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
 
-          {/* AR Overlays — visible during recording */}
-          {recording && (
+          {mode === "video" && (
             <>
-              <FramingBrackets />
-              <ScanLine />
-              <DistanceIndicator elapsed={videoElapsed} zoneDuration={zone.duration} />
+              <FramingBrackets label={recording ? "AR TRACKING" : "ALIGN VEHICLE IN FRAME"} />
               <ZoneOverlay zone={zone} nextDirection={currentZone < 4 ? "right" : "left"} />
+              {recording ? (
+                <>
+                  <ScanLine />
+                  <DistanceIndicator elapsed={videoElapsed} zoneDuration={zone.duration} />
+                  <GuideHint message={`Keep the ${zone.label.toLowerCase()} of the car inside the guide and walk ${currentZone < 4 ? "clockwise" : "around to complete coverage"}.`} />
+                </>
+              ) : (
+                <GuideHint message="Stand facing the front of the vehicle and fit the whole car inside the bright guide before you start." />
+              )}
             </>
           )}
 
-          {/* Framing brackets before recording starts */}
-          {!recording && cameraReady && <FramingBrackets />}
-
           {/* Zone coverage map overlay */}
           {recording && (
-            <div className="absolute top-4 right-4 w-28 bg-background/70 backdrop-blur-sm rounded-xl p-2 border border-border">
+            <div className="absolute top-4 right-4 w-28 bg-background/85 backdrop-blur-sm rounded-xl p-2 border border-border shadow-lg">
               <div className="grid grid-cols-4 gap-1">
                 {ZONES.map((z, i) => (
                   <div
@@ -538,7 +553,7 @@ const InspectionCaptureFlow = ({
 
           {/* Countdown / zone timer */}
           {recording && (
-            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 bg-black/60 text-white rounded-full px-6 py-2 text-sm font-mono">
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 rounded-full border border-border bg-background/85 px-6 py-2 text-sm font-mono text-foreground shadow-lg backdrop-blur-sm">
               {Math.ceil(TOTAL_DURATION - videoElapsed)}s remaining — Move to {zone.label}
             </div>
           )}
@@ -584,35 +599,32 @@ const InspectionCaptureFlow = ({
       </div>
 
       {/* Main area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 relative overflow-hidden bg-muted/20">
         {previewPhoto ? (
           <img src={previewPhoto} alt="Captured" className="h-full w-full object-cover" />
         ) : (
           <>
             <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
-            {/* AR overlays for manual mode */}
-            {cameraReady && (
-              <>
-                <FramingBrackets />
-                <ManualFramingGuide position={currentPosition} />
-              </>
-            )}
+            <FramingBrackets label="AR PHOTO GUIDE" />
+            <ManualFramingGuide position={currentPosition} />
+            <GuideHint message="Match the car to the bright outline, then take the photo once the vehicle fills the guide." />
           </>
         )}
 
         {/* Diagram overlay */}
         {!previewPhoto && (
-          <div className="absolute top-4 right-4 w-28 h-28 bg-background/70 backdrop-blur-sm rounded-xl p-2 border border-border">
+          <div className="absolute top-4 right-4 w-28 h-28 bg-background/85 backdrop-blur-sm rounded-xl p-2 border border-border shadow-lg">
             <CarDiagram activePosition={currentPosition} />
           </div>
         )}
 
         {/* Position label overlay */}
-        {!previewPhoto && cameraReady && (
+        {!previewPhoto && (
           <div className="absolute top-4 left-4 pointer-events-none">
-            <div className="bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 border border-primary/30">
-              <p className="text-primary text-sm font-bold tracking-wider">{currentPosData.label.toUpperCase()}</p>
-              <p className="text-[10px] text-primary/70 mt-0.5">Align vehicle with the guide</p>
+            <div className="rounded-2xl border border-primary/30 bg-background/85 px-4 py-3 shadow-lg backdrop-blur-sm">
+              <p className="text-xs font-medium uppercase tracking-[0.35em] text-muted-foreground">Target angle</p>
+              <p className="mt-1 text-lg font-bold tracking-[0.18em] text-primary">{currentPosData.label.toUpperCase()}</p>
+              <p className="mt-1 text-xs text-foreground">Keep the whole car inside the guide.</p>
             </div>
           </div>
         )}
