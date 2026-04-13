@@ -55,6 +55,11 @@
   }
 }
 
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 6px 1px rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 14px 4px rgba(239, 68, 68, 0.7); }
+}
+
 @media print {
   body {
     background: white !important;
