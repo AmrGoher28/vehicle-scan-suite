@@ -364,7 +364,10 @@ const InspectionReport = () => {
             <h2 className="text-xl font-bold mb-4">Inspection Photos</h2>
             <div className="grid grid-cols-4 gap-4 print:grid-cols-4">
               {photos.map((p) => {
-                const matchingDamage = damageItems.filter((d) => d.photo_position === p.position_number);
+                const matchingDamage = damageItems.filter((d) => 
+                  d.photo_position === p.position_number || 
+                  (!d.photo_position && inferPhotoPosition(d.location_on_car) === p.position_number)
+                );
                 return (
                   <div key={p.id} className="space-y-1.5">
                     <div className="relative aspect-video rounded-lg overflow-hidden bg-gray-100 shadow-sm">
