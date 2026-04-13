@@ -5,7 +5,103 @@ import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import CarDiagram, { POSITIONS } from "@/components/CarDiagram";
-import { Camera, Video, X, CheckCircle, RotateCcw, ArrowRight, Check } from "lucide-react";
+import { Camera, Video, X, CheckCircle, RotateCcw, ArrowRight, Check, MoveRight, MoveLeft } from "lucide-react";
+
+// ─── AR Overlay Components ───────────────────────────────────────────────────
+
+/** Corner framing brackets that pulse to guide positioning */
+const FramingBrackets = () => (
+  <div className="absolute inset-0 pointer-events-none ar-bracket-pulse">
+    {/* Top-left */}
+    <div className="absolute top-[15%] left-[10%] w-12 h-12 border-t-2 border-l-2 border-primary rounded-tl-md" />
+    {/* Top-right */}
+    <div className="absolute top-[15%] right-[10%] w-12 h-12 border-t-2 border-r-2 border-primary rounded-tr-md" />
+    {/* Bottom-left */}
+    <div className="absolute bottom-[15%] left-[10%] w-12 h-12 border-b-2 border-l-2 border-primary rounded-bl-md" />
+    {/* Bottom-right */}
+    <div className="absolute bottom-[15%] right-[10%] w-12 h-12 border-b-2 border-r-2 border-primary rounded-br-md" />
+  </div>
+);
+
+/** Scanning line that sweeps vertically over the camera feed */
+const ScanLine = () => (
+  <div className="absolute inset-0 pointer-events-none overflow-hidden">
+    <div className="ar-scan-line absolute left-0 right-0 h-0.5 bg-gradient-to-r from-transparent via-primary to-transparent opacity-60" />
+  </div>
+);
+
+/** Distance indicator hint */
+const DistanceIndicator = ({ elapsed, zoneDuration }: { elapsed: number; zoneDuration: number }) => {
+  const ratio = (elapsed % zoneDuration) / zoneDuration;
+  const label = ratio < 0.25 ? "Get closer" : ratio < 0.75 ? "Perfect distance" : "Step back slowly";
+  const color = ratio < 0.25 ? "text-yellow-400" : ratio < 0.75 ? "text-green-400" : "text-orange-400";
+  return (
+    <div className={`absolute top-14 left-1/2 -translate-x-1/2 ${color} text-xs font-semibold bg-black/50 px-3 py-1 rounded-full backdrop-blur-sm`}>
+      {label}
+    </div>
+  );
+};
+
+/** Large zone label overlay with walk direction arrow */
+const ZoneOverlay = ({ zone, nextDirection }: { zone: typeof ZONES[number]; nextDirection: "right" | "left" }) => (
+  <div className="absolute top-4 left-4 pointer-events-none">
+    <div className="bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 border border-primary/30">
+      <p className="text-primary text-lg font-bold tracking-wider">{zone.label.toUpperCase()}</p>
+      <div className="flex items-center gap-1.5 mt-1 ar-arrow-bounce">
+        {nextDirection === "right" ? <MoveRight className="h-3.5 w-3.5 text-primary/70" /> : <MoveLeft className="h-3.5 w-3.5 text-primary/70" />}
+        <span className="text-[10px] text-primary/70 font-medium">Walk {nextDirection}</span>
+      </div>
+    </div>
+  </div>
+);
+
+/** Vehicle silhouette guide for manual mode — shows outline matching the current position */
+const ManualFramingGuide = ({ position }: { position: number }) => {
+  // SVG outlines: front(1), rear(5) = face-on, sides(3,7) = profile, corners = angled
+  const isFront = position === 1;
+  const isRear = position === 5;
+  const isSide = position === 3 || position === 7;
+  const flip = position === 7 || position === 6 || position === 8;
+
+  return (
+    <div className="absolute inset-0 pointer-events-none flex items-center justify-center">
+      <svg
+        viewBox="0 0 200 140"
+        className="w-[60%] max-w-[300px] opacity-20"
+        style={{ transform: flip ? "scaleX(-1)" : undefined }}
+      >
+        {(isFront || isRear) ? (
+          /* Face-on view */
+          <g stroke="hsl(var(--primary))" strokeWidth="1.5" fill="none">
+            <rect x="40" y="30" width="120" height="80" rx="12" />
+            <rect x="50" y="40" width="100" height="30" rx="6" />
+            <circle cx="60" cy="100" r="12" />
+            <circle cx="140" cy="100" r="12" />
+            {isFront && <line x1="60" y1="38" x2="140" y2="38" strokeWidth="1" opacity="0.5" />}
+          </g>
+        ) : isSide ? (
+          /* Side profile */
+          <g stroke="hsl(var(--primary))" strokeWidth="1.5" fill="none">
+            <path d="M20,90 L20,60 Q20,40 40,35 L80,28 Q100,25 120,28 L160,35 Q180,40 180,60 L180,90" />
+            <line x1="20" y1="90" x2="180" y2="90" />
+            <circle cx="50" cy="95" r="14" />
+            <circle cx="150" cy="95" r="14" />
+            <path d="M70,35 L70,60 L130,60 L130,35" opacity="0.5" />
+          </g>
+        ) : (
+          /* Corner / 3/4 view */
+          <g stroke="hsl(var(--primary))" strokeWidth="1.5" fill="none">
+            <path d="M30,85 L30,55 Q35,38 55,32 L100,25 Q130,22 155,30 L170,40 Q178,50 178,65 L178,85" />
+            <line x1="30" y1="85" x2="178" y2="85" />
+            <circle cx="55" cy="90" r="13" />
+            <circle cx="155" cy="90" r="13" />
+            <path d="M65,33 Q80,45 80,55 L140,55 Q140,38 130,30" opacity="0.5" />
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+};
 
 // ─── Zone definitions ────────────────────────────────────────────────────────
 const ZONES = [
