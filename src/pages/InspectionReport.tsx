@@ -20,6 +20,7 @@ interface DamageItem {
   confidence_score: number | null; repair_cost_estimate_aed: number | null;
   description: string | null; photo_position: number | null;
   status: string; detected_by_model: string | null;
+  damage_x_percent: number | null; damage_y_percent: number | null;
 }
 interface Photo {
   id: string; position_number: number; position_name: string; photo_url: string;
@@ -103,20 +104,25 @@ const locationToCoords = (location: string): { x: number; y: number } => {
 
 const DamageMarker = ({ item, index }: { item: DamageItem; index: number }) => {
   const [showTip, setShowTip] = useState(false);
-  const pos = locationToPhotoXY(item.location_on_car);
-  const col = severityColors(item.severity);
+  const fallback = locationToPhotoXY(item.location_on_car);
+  const xPct = item.damage_x_percent ?? fallback.x;
+  const yPct = item.damage_y_percent ?? fallback.y;
 
   return (
     <div
       className="absolute z-10 cursor-pointer"
-      style={{ left: `${pos.x}%`, top: `${pos.y}%`, transform: "translate(-50%,-50%)" }}
+      style={{ left: `${xPct}%`, top: `${yPct}%`, transform: "translate(-50%,-50%)" }}
       onMouseEnter={() => setShowTip(true)}
       onMouseLeave={() => setShowTip(false)}
       onClick={() => setShowTip(!showTip)}
     >
       <div
-        className="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white border-2 animate-pulse"
-        style={{ backgroundColor: `${col.dot}cc`, borderColor: col.dot }}
+        className="w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold text-white"
+        style={{
+          border: "2px solid #ef4444",
+          animation: "pulseGlow 2s ease-in-out infinite",
+          backgroundColor: "rgba(239, 68, 68, 0.15)",
+        }}
       >
         {index + 1}
       </div>
@@ -133,51 +139,61 @@ const DamageMarker = ({ item, index }: { item: DamageItem; index: number }) => {
 
 const DamageCard = ({ item, index, photo }: { item: DamageItem; index: number; photo?: Photo }) => {
   const col = severityColors(item.severity);
-  const pos = locationToPhotoXY(item.location_on_car);
+  const fallback = locationToPhotoXY(item.location_on_car);
+  const xPct = item.damage_x_percent ?? fallback.x;
+  const yPct = item.damage_y_percent ?? fallback.y;
 
   return (
     <div className="flex items-stretch gap-0 rounded-xl border border-gray-200 bg-white shadow-sm overflow-hidden">
-      {/* Annotated photo */}
+      {/* Dual image view */}
       {photo && (
-        <div className="relative w-[200px] h-[150px] flex-shrink-0 bg-gray-100">
-          <img src={photo.photo_url} alt={photo.position_name} className="w-full h-full object-cover" />
-          {/* Red circle annotation */}
-          <div
-            className="absolute w-[60px] h-[60px] rounded-full border-[3px] border-red-500 pointer-events-none"
-            style={{
-              left: `${pos.x}%`,
-              top: `${pos.y}%`,
-              transform: "translate(-50%, -50%)",
-              boxShadow: "0 0 12px 2px rgba(239, 68, 68, 0.45)",
-            }}
-          />
-          {/* Arrow line + label */}
-          <svg className="absolute inset-0 w-full h-full pointer-events-none overflow-visible" viewBox="0 0 200 150" preserveAspectRatio="none">
-            {(() => {
-              const cx = pos.x * 2; // 0-200 scale
-              const cy = pos.y * 1.5; // 0-150 scale
-              // Label target: push to nearest edge
-              const lx = cx < 100 ? -5 : 205;
-              const ly = Math.max(15, Math.min(cy, 140));
-              return (
-                <>
-                  <line x1={cx} y1={cy} x2={lx} y2={ly} stroke="#ef4444" strokeWidth="1.5" strokeDasharray="3,2" />
-                  <circle cx={lx} cy={ly} r="2" fill="#ef4444" />
-                </>
-              );
-            })()}
-          </svg>
-          {/* External label */}
-          <div
-            className="absolute text-[9px] font-bold text-red-600 bg-red-50 border border-red-300 rounded px-1 py-0.5 whitespace-nowrap pointer-events-none"
-            style={{
-              [pos.x < 50 ? "right" : "left"]: pos.x < 50 ? "calc(100% + 2px)" : "calc(100% + 2px)",
-              ...(pos.x < 50
-                ? { left: "-2px", top: `${pos.y}%`, transform: "translateY(-50%) translateX(-100%)" }
-                : { right: "-2px", top: `${pos.y}%`, transform: "translateY(-50%) translateX(100%)" }),
-            }}
-          >
-            {item.damage_type}
+        <div className="flex flex-shrink-0">
+          {/* Main annotated photo */}
+          <div className="relative w-[250px] h-[180px] bg-gray-100">
+            <img src={photo.photo_url} alt={photo.position_name} className="w-full h-full object-cover" />
+            {/* Red circle with number */}
+            <div
+              className="absolute w-10 h-10 rounded-full flex items-center justify-center text-[11px] font-bold pointer-events-none"
+              style={{
+                left: `${xPct}%`,
+                top: `${yPct}%`,
+                transform: "translate(-50%, -50%)",
+                border: "2px solid #ef4444",
+                animation: "pulseGlow 2s ease-in-out infinite",
+                backgroundColor: "rgba(239, 68, 68, 0.15)",
+                color: "#ef4444",
+              }}
+            >
+              {index + 1}
+            </div>
+            {/* Connecting line to zoom panel */}
+            <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 250 180" preserveAspectRatio="none">
+              <line
+                x1={xPct * 2.5}
+                y1={yPct * 1.8}
+                x2={250}
+                y2={90}
+                stroke="#ef4444"
+                strokeWidth="1"
+                strokeDasharray="4,3"
+                opacity="0.6"
+              />
+            </svg>
+          </div>
+          {/* Zoomed detail panel */}
+          <div className="relative w-[150px] h-[180px] border-l-2 border-red-300 flex-shrink-0">
+            <div className="absolute top-0 left-0 right-0 bg-red-500 text-white text-[9px] font-bold text-center py-0.5 z-10 tracking-wider">
+              DETAIL
+            </div>
+            <div
+              className="w-full h-full"
+              style={{
+                backgroundImage: `url(${photo.photo_url})`,
+                backgroundSize: "300%",
+                backgroundPosition: `${xPct}% ${yPct}%`,
+                backgroundRepeat: "no-repeat",
+              }}
+            />
           </div>
         </div>
       )}
