@@ -588,13 +588,32 @@ const InspectionCaptureFlow = ({
         {previewPhoto ? (
           <img src={previewPhoto} alt="Captured" className="h-full w-full object-cover" />
         ) : (
-          <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+          <>
+            <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
+            {/* AR overlays for manual mode */}
+            {cameraReady && (
+              <>
+                <FramingBrackets />
+                <ManualFramingGuide position={currentPosition} />
+              </>
+            )}
+          </>
         )}
 
         {/* Diagram overlay */}
         {!previewPhoto && (
           <div className="absolute top-4 right-4 w-28 h-28 bg-background/70 backdrop-blur-sm rounded-xl p-2 border border-border">
             <CarDiagram activePosition={currentPosition} />
+          </div>
+        )}
+
+        {/* Position label overlay */}
+        {!previewPhoto && cameraReady && (
+          <div className="absolute top-4 left-4 pointer-events-none">
+            <div className="bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2 border border-primary/30">
+              <p className="text-primary text-sm font-bold tracking-wider">{currentPosData.label.toUpperCase()}</p>
+              <p className="text-[10px] text-primary/70 mt-0.5">Align vehicle with the guide</p>
+            </div>
           </div>
         )}
       </div>
