@@ -1,64 +1,44 @@
 
 
-## Plan: Accurate Damage Coordinates + Dual Image View + Circle Style
+## Plan: Bounding Box Coordinate System
 
 ### Overview
-Three coordinated changes: (1) AI returns precise damage coordinates, stored in new DB columns, (2) report cards show a dual photo view with full image + zoomed crop, (3) red circle annotations use AI coordinates and a refined pulsing style.
-
-To answer your question: the red circles are drawn by **CSS/HTML in the React frontend** (`InspectionReport.tsx`), not by the AI model. The AI only analyzes the photo and returns data — the circles are overlaid in the browser using absolute positioning.
-
----
+Replace the point-based damage coordinate system (damage_x/y_percent) with a proper bounding box system (bbox_ymin, bbox_xmin, bbox_ymax, bbox_xmax on a 0-1000 scale). The AI prompts ask for `[ymin, xmin, ymax, xmax]` arrays, and the UI renders rectangles instead of circles on the photo annotations.
 
 ### 1. Database Migration
-Add two nullable numeric columns to `damage_items`:
-- `damage_x_percent NUMERIC` (0-100, distance from left edge)
-- `damage_y_percent NUMERIC` (0-100, distance from top edge)
+Add four `smallint` columns to `damage_items`: `bbox_ymin`, `bbox_xmin`, `bbox_ymax`, `bbox_xmax`. Add range constraints (0-1000) and ordering constraints. Backfill existing rows from legacy `damage_x/y_percent` values.
+
+Note: Per project guidelines, CHECK constraints with static ranges (0-1000) are safe since they are immutable — no time-based logic involved.
 
 ### 2. Edge Function (`analyse-damage/index.ts`)
-- **First pass prompt**: Append to `FIRST_PASS_SYSTEM`: *"For each damage item, also return two additional fields: damage_x_percent (a number 0-100 representing how far from the left edge of the photo the damage is) and damage_y_percent (a number 0-100 representing how far from the top edge of the photo the damage is). Study the image carefully and pinpoint exactly where the damage appears in the photo."*
-- **Second pass prompt**: Add `damage_x_percent` and `damage_y_percent` to the list of returned fields.
-- **Insert rows**: Map `damage_x_percent` and `damage_y_percent` from AI response into the DB insert.
+Replace entirely with the provided code:
+- **Prompts**: Ask for `bounding_box: [ymin, xmin, ymax, xmax]` (0-1000 integers) instead of `damage_x/y_percent`
+- **Helpers**: `parseBoundingBox()` validates the array, `legacyPointToBox()` converts old-style responses
+- **DB insert**: Maps bbox fields into the new columns, plus computes legacy `damage_x/y_percent` from the center point for backwards compatibility
 
-### 3. Report UI (`InspectionReport.tsx`)
+### 3. Report Page (`InspectionReport.tsx`)
+Replace entirely with the provided code (reconstructing proper JSX from the stripped paste):
+- **DamageItem type**: Add `bbox_ymin/xmin/ymax/xmax` fields
+- **`getBoundingBoxPercent()`**: Converts 0-1000 bbox → CSS % (left/top/width/height), with fallback chain: bbox → legacy point → text heuristic
+- **`DamageBoundingBox` component**: Renders a rectangle overlay (not a circle) with severity-colored border, number label, "approx" indicator when imprecise, and hover tooltip
+- **`DamageCard`**: Updated dual-view with bbox-aware zoom panel centering on the box center
+- **Photo grid**: Uses `DamageBoundingBox` instead of `DamageMarker`
+- **Summary section**: Shows precision count ("X of Y have precise bounding box locations")
+- `severityColors` gets a `stroke` property for SVG use
 
-**DamageItem type** — add `damage_x_percent: number | null` and `damage_y_percent: number | null`.
+### 4. Damage Results (`DamageResults.tsx`)
+Replace with the provided code:
+- Updated `DamageItem` interface with bbox fields
+- Precision indicator badges (Crosshair icon + "Precise" vs MapPin icon + "Approx") on each item
+- Summary line showing how many items have precise locations
 
-**DamageCard redesign:**
-- Two images side by side inside each card:
-  - **Left (250×180px)**: Full inspection photo with a 40px red circle positioned at `damage_x_percent / damage_y_percent` (falling back to text-based `locationToPhotoXY` if null). Circle has 2px solid red border, pulsing red glow via CSS `@keyframes`, and a small number label inside.
-  - **Right (150×180px)**: Zoomed crop using `background-image` of the same photo, `background-size: 300%`, `background-position` calculated from the damage coordinates to center the damage. Labeled "DETAIL" at the top. Subtle border.
-  - A thin connecting bracket/line drawn via SVG between the circle on the left image and the zoom panel.
+### 5. Deploy
+- Deploy updated `analyse-damage` edge function
+- Existing scans without bbox data gracefully fall back to legacy positioning
 
-**DamageMarker** — also updated to use AI coordinates when available, with the smaller 40px pulsing style.
-
-**CSS** — add `@keyframes pulseGlow` animation to `src/index.css` for the red circle glow effect.
-
-### 4. Deploy
-- Run DB migration
-- Redeploy `analyse-damage` edge function
-- Existing scans without coordinates will gracefully fall back to text-based positioning
-
----
-
-### Technical Details
-
-**Zoom background-position formula:**
-```
-background-position: ${100 - xPct}% ${100 - yPct}%
-// adjusted so damage is centered in the 150px crop
-```
-
-**Pulsing glow keyframes:**
-```css
-@keyframes pulseGlow {
-  0%, 100% { box-shadow: 0 0 6px 1px rgba(239,68,68,0.4); }
-  50% { box-shadow: 0 0 14px 4px rgba(239,68,68,0.7); }
-}
-```
-
-**Files modified:**
-- `supabase/functions/analyse-damage/index.ts` — prompts + insert mapping
-- `src/pages/InspectionReport.tsx` — DamageCard dual view, DamageMarker, types
-- `src/index.css` — pulse animation
-- New migration for `damage_x_percent` / `damage_y_percent` columns
+### Files Modified
+- New migration SQL for bbox columns
+- `supabase/functions/analyse-damage/index.ts`
+- `src/pages/InspectionReport.tsx`
+- `src/components/DamageResults.tsx`
 
