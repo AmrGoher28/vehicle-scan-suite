@@ -501,6 +501,19 @@ const InspectionCaptureFlow = ({
         <div className="flex-1 relative overflow-hidden">
           <video ref={videoRef} autoPlay playsInline muted className="h-full w-full object-cover" />
 
+          {/* AR Overlays — visible during recording */}
+          {recording && (
+            <>
+              <FramingBrackets />
+              <ScanLine />
+              <DistanceIndicator elapsed={videoElapsed} zoneDuration={zone.duration} />
+              <ZoneOverlay zone={zone} nextDirection={currentZone < 4 ? "right" : "left"} />
+            </>
+          )}
+
+          {/* Framing brackets before recording starts */}
+          {!recording && cameraReady && <FramingBrackets />}
+
           {/* Zone coverage map overlay */}
           {recording && (
             <div className="absolute top-4 right-4 w-28 bg-background/70 backdrop-blur-sm rounded-xl p-2 border border-border">
