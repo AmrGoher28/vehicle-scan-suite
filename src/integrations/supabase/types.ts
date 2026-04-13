@@ -14,11 +14,47 @@ export type Database = {
   }
   public: {
     Tables: {
+      inspection_photos: {
+        Row: {
+          created_at: string
+          id: string
+          inspection_id: string
+          photo_url: string
+          position_name: string
+          position_number: number
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          inspection_id: string
+          photo_url: string
+          position_name: string
+          position_number: number
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          inspection_id?: string
+          photo_url?: string
+          position_name?: string
+          position_number?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inspection_photos_inspection_id_fkey"
+            columns: ["inspection_id"]
+            isOneToOne: false
+            referencedRelation: "inspections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inspections: {
         Row: {
           created_at: string
           id: string
           inspection_date: string
+          inspection_type: string
           notes: string | null
           status: string
           vehicle_id: string
@@ -27,6 +63,7 @@ export type Database = {
           created_at?: string
           id?: string
           inspection_date?: string
+          inspection_type?: string
           notes?: string | null
           status?: string
           vehicle_id: string
@@ -35,6 +72,7 @@ export type Database = {
           created_at?: string
           id?: string
           inspection_date?: string
+          inspection_type?: string
           notes?: string | null
           status?: string
           vehicle_id?: string
