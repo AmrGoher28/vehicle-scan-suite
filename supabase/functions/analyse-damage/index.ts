@@ -18,18 +18,22 @@ type PhotoCategory = "overview" | "detail" | "wheel";
 
 function classifyPhoto(photo: { position_name?: string }): PhotoCategory {
   const name = (photo.position_name || "").toLowerCase();
-  if (name.startsWith("wheel"))   return "wheel";
-  if (name.startsWith("detail"))  return "detail";
+  if (name.startsWith("wheel"))  return "wheel";
+  if (name.startsWith("detail")) return "detail";
+  if (name.startsWith("manual damage")) return "detail";
   return "overview";
 }
 
-// ─── System prompts per photo category ────────────────────────────────────
+// ─── System prompts ────────────────────────────────────────────────────────
 
-const BASE_RULES = `
+const FIRST_PASS_SYSTEM = `You are an expert vehicle damage assessor for a luxury supercar rental company inspecting vehicles worth £50,000 to £500,000.
+Your job is to identify any damage that could have been caused during a rental period.
+Flag anything that goes beyond normal day-to-day wear.
+
 ALWAYS flag these — even if minor:
-- Any scratch longer than 2 cm or deeper than surface level
+- Any scratch longer than 2cm or deeper than surface level
 - Any dent regardless of size
-- Any scuff or scrape on bumpers, bodywork, or side skirts
+- Any scuff or scrape mark on bumpers, bodywork, or side skirts
 - Alloy wheel kerb rash or rim damage
 - Cracked, chipped, or starred windscreen or glass
 - Bumper scrapes, dents, or cracks
@@ -40,118 +44,75 @@ ALWAYS flag these — even if minor:
 - Interior rips, tears, burns, or stains
 - Any paint damage where bare metal or primer is visible
 
-USE YOUR JUDGEMENT — flag only if abnormal:
-- Light surface scratches under 2 cm (only if clustered or from one incident)
-- Minor chips on leading edges (only if large or numerous)
+USE YOUR JUDGEMENT on these — flag only if abnormal or excessive:
+- Light surface scratches under 2cm (only if clustered or clearly from one incident)
+- Minor chips on leading edges (only if large or numerous in one area)
 
-IGNORE completely — normal wear:
-- Isolated tiny stone chips on bonnet/bumper
+IGNORE these completely — they are normal wear:
+- Isolated tiny stone chips on bonnet or bumper
 - Swirl marks from washing
-- Water spots or etching
+- Water spots or water etching
 - Paint oxidation or sun fade
-- Dust, dirt, factory imperfections
+- Dust or dirt
+- Factory paint imperfections
 - Normal tyre tread wear
 
-BOUNDING BOX FORMAT: [ymin, xmin, ymax, xmax] — integers 0–1000.
-The box must TIGHTLY enclose ONLY the damaged area.
-Example — small scratch: [450, 300, 480, 500]
-Example — larger dent: [200, 150, 380, 420]
+CRITICAL LOCALIZATION INSTRUCTIONS:
+For each piece of damage, you MUST provide a precise bounding box showing exactly where the damage appears in the photo.
+The bounding box format is [ymin, xmin, ymax, xmax] where each value is an integer from 0 to 1000:
+- 0 means the very top-left of the image
+- 1000 means the very bottom-right of the image
+- The box should TIGHTLY enclose ONLY the damaged area, not a large region
+- For a small scratch, the box might be something like [450, 300, 480, 500] — narrow and precise
+- For a larger dent, the box would be wider but still only covering the dent itself
 
-Return ONLY a valid JSON array — no markdown, no explanation.
-If no damage: return []
-
-Each item must have:
-- type: string
-- location_on_car: string
-- size_estimate: string
+For each piece of damage found, return a JSON array of objects with these fields:
+- type: string (e.g. "scratch", "dent", "scuff", "kerb rash")
+- location_on_car: string (e.g. "front left bumper", "rear right quarter panel")
+- size_estimate: string (e.g. "approximately 5cm", "small")
 - severity: "minor" | "moderate" | "severe"
-- confidence_score: number 0–100
-- description: string
-- bounding_box: [ymin, xmin, ymax, xmax]
-`;
+- confidence_score: number 0-100
+- description: string (detailed description of the damage)
+- bounding_box: [ymin, xmin, ymax, xmax] — integers 0-1000, tightly enclosing the damage in the photo
 
-const OVERVIEW_SYSTEM = `You are an expert vehicle damage assessor for a luxury/premium vehicle fleet (rental, buying, and selling).
-You are reviewing an OVERVIEW photo taken from 3–4 metres away showing a full angle of the vehicle.
+Study the image carefully. Look at every region of the photo methodically — top-left, top-right, center, bottom-left, bottom-right.
+Be thorough but fair. When in doubt, flag it.
+Return ONLY valid JSON — no markdown, no explanation.
+If no damage is found, return an empty array: []`;
 
-Your job: identify any damage visible at this distance. Focus on:
-- Panel alignment and large dents
-- Bumper damage and scrapes
-- Cracked or broken lights
-- Missing or damaged trim/badges
-- Obvious paint damage or deep scratches
-- Windscreen or glass damage
+const SECOND_PASS_SYSTEM = `You are a senior vehicle damage assessor reviewing findings from a multi-photo vehicle inspection on a luxury rental vehicle.
 
-Note: fine surface scratches may not be visible at this distance — that is expected. Focus on structural and obvious cosmetic damage.
-Scan the entire frame methodically — top-left, top-right, centre, bottom-left, bottom-right, wheel arches.
-
-${BASE_RULES}`;
-
-const DETAIL_SYSTEM = `You are an expert vehicle damage assessor reviewing a CLOSE-UP DETAIL photo of a vehicle's body panels.
-This photo was taken at 40–60 cm from the surface and shows a specific panel: bumper, door, or sill.
-
-Your job: find fine surface damage that may not be visible in overview shots. Scrutinise:
-- Paint surface for fine scratches, swirls from impact, keying, or scuffs
-- Panel edges for door dings, creases, or impact damage
-- Lower sills and rocker panels for kerb strikes and road debris damage
-- Bumper surfaces for paint transfer, scrapes, stress cracks, or clips
-- Any discolouration indicating a previous repair or respray
-
-Because this is a close-up, you can detect damage down to 1–2 cm. Be thorough but fair.
-Study every region of the photo at high resolution — zoom into corners and edges mentally.
-
-${BASE_RULES}`;
-
-const WHEEL_SYSTEM = `You are an expert vehicle damage assessor reviewing a CLOSE-UP WHEEL PHOTO.
-This photo was taken at 30–50 cm from the wheel showing the rim face and tyre.
-
-Your job: inspect every part of the wheel for damage. Check:
-- Alloy rim: kerb rash (scuffing on the outer lip), deep gouges, bent or cracked sections
-- Spoke faces: scratches, scuffs, or impact marks
-- Centre cap: cracks, missing caps, logo damage
-- Tyre: sidewall cuts, bulges, unusual wear patterns, embedded objects, cracking
-- Wheel arch liner: cracks, missing clips, or stone damage (if visible)
-
-Even light kerb rash on a luxury rim can cost 500–1500 AED to repair — flag it.
-Note the specific position (front-left, rear-right, etc.) from the photo label if provided.
-
-${BASE_RULES}`;
-
-const SECOND_PASS_SYSTEM = `You are a senior vehicle damage assessor doing a final review of an 18-photo 3-stage vehicle scan.
-The scan has three stages:
-- "Overview - ..." photos: 8 wide-angle shots around the vehicle
-- "Detail - ..." photos: 6 close-up shots of panels, bumpers, and sills
-- "Wheel - ..." photos: 4 close-up wheel shots
-
-CRITICAL — CROSS-PHOTO DUPLICATE DETECTION:
-Many overview and detail shots may show the same damage from different angles or distances.
+CRITICAL: CROSS-PHOTO DUPLICATE DETECTION
+Many photos may show the SAME damage from slightly different angles or distances.
 You MUST merge duplicates into a single item:
-- Same damage type + same location_on_car from different photos → merge into ONE item
-- Keep the bounding_box from the photo where it is MOST clearly visible (highest confidence, closest/sharpest)
-- Combine descriptions if they add unique detail; use the highest confidence_score
-- Add "seen_in_frames" listing all photo positions where this damage appeared
+- If two or more items from different photos describe damage in the same location_on_car with the same type, merge them into ONE item.
+- For the merged item, keep the bounding_box and photo_position from the photo where the damage is MOST clearly visible (highest confidence, best angle, sharpest image).
+- Combine descriptions if they add unique detail.
+- Use the highest confidence_score from the duplicates.
+- Add a "seen_in_frames" field listing all photo numbers where this damage appeared.
+- If close-up photos exist and show the same damage as wider shots, prefer the close-up's bounding_box (it's likely clearer).
 
 Review each item and:
-1. Confirm genuine rental/purchase-relevant damage
-2. Reject items that are clearly normal wear (isolated stone chips, wash swirls)
-3. Flag anything the first pass missed — particularly lower bumpers, door edges, mirror housings, tyre sidewalls
-4. Assign realistic repair cost estimates in AED:
-   - Light kerb rash on alloy:     400–900 AED
-   - Deep kerb rash / bend:        800–2000 AED
-   - Minor scratch (panel):        200–600 AED
-   - Moderate scratch/scuff:       500–1500 AED
-   - Small dent (no paint damage): 300–800 AED
-   - Dent with paint damage:       800–2500 AED
-   - Bumper scrape/crack:          600–2000 AED
-   - Windscreen chip:              300–600 AED
-   - Windscreen crack:             1200–3000 AED
-5. For borderline items, keep them as "minor" rather than rejecting
+1) Confirm genuine damage that a customer could have caused.
+2) Reject anything that is clearly just normal wear and tear (isolated stone chips, wash swirls).
+3) Flag anything the first inspector missed — look carefully at wheel arches, lower bumpers, door edges, and mirror housings as these are commonly missed.
+4) Add repair cost estimates in AED.
+5) For borderline items, keep them but downgrade to minor severity rather than rejecting.
 
-Every confirmed item MUST have:
-- bounding_box: [ymin, xmin, ymax, xmax] (0–1000)
-- photo_position: integer (the photo number with the clearest view)
-- seen_in_frames: integer[] (all photo numbers where this damage appears)
-- status: "confirmed" | "new" | "rejected"
+BOUNDING BOX AND POSITION RULES:
+- Every item MUST include a "bounding_box" field as [ymin, xmin, ymax, xmax] (integers 0-1000).
+- For confirmed items, preserve the bounding_box from the best photo — do NOT change it unless merging.
+- For NEW items you discover, provide your own bounding_box that tightly encloses the damage in the relevant photo.
+- Every item MUST include "photo_position" (integer) indicating which photo it appears in.
+
+Return a final JSON array with fields:
+- type, location_on_car, size_estimate, severity, confidence_score
 - repair_cost_estimate_aed: number
+- description: string
+- bounding_box: [ymin, xmin, ymax, xmax]
+- photo_position: integer (photo number with the clearest view of this damage)
+- seen_in_frames: integer[] (all photo numbers where this damage was detected)
+- status: "confirmed" | "new" | "rejected"
 
 Return ONLY valid JSON — no markdown, no explanation.`;
 
@@ -214,15 +175,13 @@ function preMergeDuplicates(items: Record<string, unknown>[]): Record<string, un
 // ─── Per-photo first-pass analysis ────────────────────────────────────────
 
 async function analyzePhoto(photo: Record<string, unknown>, apiKey: string): Promise<Record<string, unknown>[]> {
-  const category  = classifyPhoto({ position_name: String(photo.position_name ?? "") });
-  const systemMap = { overview: OVERVIEW_SYSTEM, detail: DETAIL_SYSTEM, wheel: WHEEL_SYSTEM };
-  const system    = systemMap[category];
+  const category = classifyPhoto({ position_name: String(photo.position_name ?? "") });
 
-  const contextHint = category === "overview"
-    ? `This is an overview shot: "${photo.position_name}". Scan the entire frame for any visible damage.`
-    : category === "detail"
-    ? `This is a close-up detail shot: "${photo.position_name}". Look very carefully for fine scratches, scuffs, and panel damage.`
-    : `This is a wheel close-up: "${photo.position_name}". Inspect the rim, spokes, and tyre thoroughly.`;
+  const contextHint = category === "detail"
+    ? `This is a CLOSE-UP photo of a body panel: "${photo.position_name}". Because this is close-up, you should be able to detect even small scratches, scuffs, and fine surface damage. Look extremely carefully at every part of the image.`
+    : category === "wheel"
+    ? `This is a CLOSE-UP photo of a wheel: "${photo.position_name}". Inspect the rim for kerb rash, the spokes for scratches, and the tyre for sidewall damage. Even light kerb rash on a luxury alloy can cost 500-1500 AED to repair — flag it.`
+    : `This is photo "${photo.position_name}" from a vehicle inspection. Scan every region of the image for any damage — scratches, dents, scuffs, panel misalignment, broken lights, bumper damage, wheel damage, trim damage — anything beyond normal wear.`;
 
   const response = await fetch(GATEWAY_URL, {
     method: "POST",
@@ -230,7 +189,7 @@ async function analyzePhoto(photo: Record<string, unknown>, apiKey: string): Pro
     body: JSON.stringify({
       model: MODEL,
       messages: [
-        { role: "system", content: system },
+        { role: "system", content: FIRST_PASS_SYSTEM },
         {
           role: "user",
           content: [
