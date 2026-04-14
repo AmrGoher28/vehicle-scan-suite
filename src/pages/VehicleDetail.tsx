@@ -386,7 +386,7 @@ const VehicleDetail = () => {
                     </Select>
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    You'll be guided through 8 positions around the vehicle to capture photos.
+                    You'll be guided through 18 positions around the vehicle to capture photos.
                   </p>
                   <Button className="w-full gap-2" onClick={startInspection}>
                     <Camera className="h-4 w-4" />

@@ -578,21 +578,29 @@ const InspectionCaptureFlow = ({ vehicleId, inspectionType, onComplete, onCancel
         .select().single();
       if (inspErr || !insp) throw inspErr;
 
-      for (const [idStr, dataUrl] of Object.entries(photos)) {
+      const entries = Object.entries(photos);
+      let savedCount = 0;
+
+      for (const [idStr, dataUrl] of entries) {
         const s     = SHOTS.find(x => x.id === Number(idStr))!;
         const label = `${s.stage.charAt(0).toUpperCase() + s.stage.slice(1)} - ${s.label}`;
         const blob  = dataUrlToBlob(dataUrl);
         const path  = `${user.id}/${insp.id}/shot-${idStr}.jpg`;
 
         const { error: upErr } = await supabase.storage.from("inspection-photos").upload(path, blob, { contentType: "image/jpeg" });
-        if (upErr) throw upErr;
+        if (upErr) throw new Error(`Upload failed for shot ${idStr} (${label}): ${upErr.message}`);
 
         const { data: urlData } = supabase.storage.from("inspection-photos").getPublicUrl(path);
         const { error: phErr } = await supabase.from("inspection_photos").insert({
           inspection_id: insp.id, position_number: Number(idStr),
           position_name: label, photo_url: urlData.publicUrl,
         });
-        if (phErr) throw phErr;
+        if (phErr) {
+          // Clean up the uploaded file since the DB row failed
+          await supabase.storage.from("inspection-photos").remove([path]);
+          throw new Error(`Save failed for shot ${idStr} (${label}): ${phErr.message}`);
+        }
+        savedCount++;
       }
 
       toast({ title: "Scan submitted!", description: "AI analysis running in background." });
