@@ -1,32 +1,28 @@
 
 
-## Plan: Update InspectionCaptureFlow and analyse-damage edge function
+## Plan: Replace InspectionCaptureFlow and analyse-damage edge function
 
 ### Step 1: Replace `src/components/InspectionCaptureFlow.tsx`
-Replace with the new 18-shot, 3-stage guided capture flow featuring:
-- Three stages: Overview (8 shots, 3-4m away), Detail (6 close-ups of panels/sills), Wheels (4 wheel close-ups)
-- Real-time proximity detection via frame variance analysis
-- Auto-capture after 2s of stable "good" proximity
-- SVG shot guides per view angle (front, rear, side, corner, low, wheel)
-- Proximity ring with countdown arc
-- Top-down position map
-- Stage transition screens with tips
-- Full review screen before submission
-- Live-capture timestamp watermark (anti-fraud)
+Replace with the new version featuring:
+- Simplified flow states: `intro → position → capture → preview → stage_done → review → saving`
+- Full-screen "walk here" position cards with large diagrams before each shot
+- Framing brackets on the live camera (corner brackets for overview/detail, circular guide for wheels)
+- Faint shot silhouette overlay on camera view
+- Skip shot capability with minimum 10 photos required for submission
+- Distance hint bar persistent on camera view
+- Removed auto-capture/proximity detection — manual tap only
+- Added `RotateCw` icon import
 
 ### Step 2: Replace `supabase/functions/analyse-damage/index.ts`
-Replace with the updated edge function featuring:
-- Category-specific system prompts: `OVERVIEW_SYSTEM`, `DETAIL_SYSTEM`, `WHEEL_SYSTEM` (tailored to photo distance/subject)
-- Photo classification by `position_name` prefix (overview/detail/wheel)
-- Improved `normaliseKey()` for cross-photo duplicate merging (strips filler words)
-- Detail/wheel photos prioritised first in processing order
-- Low-confidence items (< 35%) flagged as `needs_review` instead of auto-confirmed
-- Batch size increased to 4
-- Realistic AED repair cost ranges in second-pass prompt
+Replace with the updated version featuring:
+- Reverted to single `FIRST_PASS_SYSTEM` prompt for all photo types (instead of 3 separate prompts)
+- Per-photo context hints still vary by category but use the same base system prompt
+- Added legacy naming support in `classifyPhoto` (`"manual damage"` → detail)
+- Kept all existing infrastructure: `parseBoundingBox`, `normaliseKey`, `preMergeDuplicates`, second pass, batch processing
 
 ### Step 3: Deploy the edge function
 
 ### Technical Notes
-- No database changes needed — uses existing bbox columns
-- The edge function auto-deploys after update
+- No database changes needed
+- Edge function auto-deploys after update
 
